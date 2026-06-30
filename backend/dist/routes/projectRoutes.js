@@ -7,6 +7,7 @@ const router = (0, express_1.Router)();
 router.use(auth_1.protect);
 router.post('/', projectController_1.createProject);
 router.get('/', projectController_1.getProjects);
+router.post('/load-test-project', projectController_1.loadTestProject);
 router.get('/:id', projectController_1.getProjectById);
 router.put('/:id', projectController_1.updateProject);
 router.delete('/:id', projectController_1.deleteProject);

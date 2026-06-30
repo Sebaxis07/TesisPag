@@ -408,3 +408,225 @@ export const deleteProject = async (req: ProjectAuthRequest, res: Response) => {
   }
 };
 
+export const loadTestProject = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const userId = req.user._id;
+
+    // Create the test project
+    const project = await Project.create({
+      name: "Proyecto IoT Domótica Inteligente con IA",
+      description: "Sistema avanzado de monitoreo de temperatura, detección de anomalías y control automatizado de consumo energético residencial usando MQTT y modelos de regresión lineal.",
+      problem: "Los sistemas de domótica actuales carecen de optimización energética contextualizada e inteligente, lo que se traduce en altos consumos de electricidad y nula previsión de fallos en equipos.",
+      objectives: "Desarrollar una plataforma integrada de IoT con visualización en tiempo real, alarmas predictivas para fallos de climatización y un motor de reglas automatizadas.",
+      restrictions: "Debe operar con microcontroladores ESP32, usar protocolos livianos (MQTT), y la interfaz de usuario debe responder en menos de 200ms.",
+      companyName: "Inmobiliaria Futuro S.A.",
+      companyContact: "Contacto: contacto@futuro.cl",
+      methodology: "Scrum"
+    });
+
+    const projectId = project._id;
+
+    // 1. Team Members
+    await TeamMember.create({
+      user: userId,
+      project: projectId,
+      role: 'Admin',
+      operationalRole: 'Director de Tesis / Creador',
+      workload: 50,
+      canComment: true
+    });
+
+    const benjamin = await User.findOne({ rut: '21.450.830-3' });
+    if (benjamin) {
+      await TeamMember.create({
+        user: benjamin._id,
+        project: projectId,
+        role: 'Editor',
+        operationalRole: 'Desarrollador Backend',
+        workload: 100,
+        canComment: true
+      });
+    }
+
+    const paolo = await User.findOne({ rut: '20.994.544-4' });
+    if (paolo) {
+      await TeamMember.create({
+        user: paolo._id,
+        project: projectId,
+        role: 'Editor',
+        operationalRole: 'Desarrollador Frontend & UX',
+        workload: 100,
+        canComment: true
+      });
+    }
+
+    // Add project to creator's assignedProjects
+    await User.findByIdAndUpdate(userId, {
+      $addToSet: { assignedProjects: projectId }
+    });
+
+    // 2. Requirements
+    const req1 = await Requirement.create({
+      project: projectId,
+      owner: userId,
+      code: "RF-01",
+      title: "Monitoreo de Sensores en Tiempo Real",
+      description: "La interfaz gráfica debe desplegar un gráfico de línea continuo que muestre los datos de temperatura y humedad enviados por los nodos ESP32 con una latencia inferior a 500ms.",
+      priority: "Alta",
+      status: "Implemented",
+      category: "Functional",
+      origin: "Minuta de Kickoff",
+      impactAnalysis: "Afecta la carga de la base de datos y requiere suscripción WebSockets en el cliente."
+    });
+
+    const req2 = await Requirement.create({
+      project: projectId,
+      owner: userId,
+      code: "RF-02",
+      title: "Control Manual de Climatización",
+      description: "El usuario debe poder encender y apagar los sistemas de calefacción o aire acondicionado de manera manual presionando un interruptor digital desde la plataforma web.",
+      priority: "Media",
+      status: "In_Progress",
+      category: "Functional",
+      origin: "Requerimientos Inmobiliaria",
+      impactAnalysis: "Requiere validación de permisos de usuario y publicación en el broker MQTT."
+    });
+
+    const req3 = await Requirement.create({
+      project: projectId,
+      owner: userId,
+      code: "RN-01",
+      title: "Cifrado de Datos IoT",
+      description: "Toda la comunicación de telemetría transmitida vía protocolo MQTT desde los dispositivos hacia el broker centralizado debe estar cifrada usando TLS 1.3.",
+      priority: "Alta",
+      status: "Approved",
+      category: "Non-Functional",
+      origin: "Análisis de Seguridad",
+      impactAnalysis: "Incrementa el uso de CPU de los microcontroladores y la latencia inicial de negociación."
+    });
+
+    // 3. Meetings
+    await Meeting.create({
+      project: projectId,
+      owner: userId,
+      title: "Minuta Reunión de Arranque (Kickoff)",
+      date: new Date(),
+      transcription: "Sebastian: Iniciamos el desarrollo del proyecto de domótica. Benjamin configurará el backend y Paolo el front. Acordamos usar MQTT y React con Tailwind CSS. Paolo: Sí, haré la vista de monitoreo en tiempo real. Benjamin: Yo levantaré el broker Mosquitto en Render.",
+      summary: "Reunión de coordinación técnica para establecer las bases de ThesisFlow IoT. Se definieron las tecnologías a utilizar y las responsabilidades de los miembros del equipo.",
+      agreements: [
+        "Usar MQTT sobre TLS 1.3 para seguridad.",
+        "Sebastian liderará el diseño de arquitectura general.",
+        "Paolo implementará gráficos de telemetría."
+      ],
+      tasks: [
+        "Levantar broker Mosquitto en Render (Benjamin)",
+        "Crear primer mock de interfaz React (Paolo)"
+      ],
+      risks: [
+        "Latencia de red del broker gratuito de Render."
+      ]
+    });
+
+    // 4. ADR Decisions
+    const adr = await ADRDecision.create({
+      project: projectId,
+      owner: userId,
+      code: "ADR-001",
+      title: "Uso de Protocolo MQTT sobre HTTP",
+      status: "Accepted",
+      context: "Necesitamos un protocolo de comunicación bidireccional y liviano para conectar los microcontroladores ESP32 con el servidor central.",
+      decision: "Adoptar el protocolo de mensajería Publish/Subscribe MQTT debido a su bajo overhead, permitiendo transferencias rápidas en redes móviles o inestables.",
+      consequences: "Se introduce la necesidad de administrar un Broker MQTT (Mosquitto) y configurar suscripciones WebSockets en la aplicación React.",
+      alternatives: [
+        { title: "HTTP REST Polling", status: "Rejected", justification: "Alto consumo de ancho de banda y batería de dispositivos debido al polling periódico." },
+        { title: "WebSockets directos", status: "Rejected", justification: "Complejo de implementar y mantener a gran escala en microcontroladores con recursos limitados." }
+      ]
+    });
+
+    // 5. Diagrams
+    await Diagram.create({
+      project: projectId,
+      owner: userId,
+      title: "Diagrama de Arquitectura Física IoT",
+      description: "Diagrama de flujo que ilustra la conexión de sensores físicos ESP32 con el broker Mosquitto y el backend ThesisFlow.",
+      type: "Flowchart",
+      code: `graph TD
+    ESP32[Nodos ESP32 de Sensores] -->|MQTT/TLS 1.3| Mosquitto[Broker Mosquitto]
+    Mosquitto -->|WebSockets| Backend[Backend NodeJS]
+    Backend -->|JSON| Frontend[Cliente React SPA]
+    Backend -->|Mongoose| MongoDB[(MongoDB Cloud Atlas)]`
+    });
+
+    // 6. Tasks
+    const t1 = await Task.create({
+      project: projectId,
+      code: "TSK-001",
+      title: "Configurar Broker MQTT Mosquitto",
+      description: "Lanzar un contenedor Docker con Mosquitto, habilitar autenticación por credenciales y cargar certificados SSL/TLS.",
+      status: "Completed",
+      priority: "High",
+      assignedTo: benjamin ? benjamin._id : undefined
+    });
+
+    const t2 = await Task.create({
+      project: projectId,
+      code: "TSK-002",
+      title: "Implementar Gráfico de Línea de Temperatura",
+      description: "Integrar Recharts o Chart.js en la página de monitoreo para graficar datos de sensores recibidos via WebSocket.",
+      status: "In_Progress",
+      priority: "Medium",
+      assignedTo: paolo ? paolo._id : undefined
+    });
+
+    // 7. Documents
+    await AcademicDocument.create({
+      project: projectId,
+      owner: userId,
+      title: "Capítulo I. Introducción y Negocio",
+      templateType: "Introducción del Proyecto",
+      content: `# Capítulo I. Introducción
+
+En el contexto actual de las Smart Cities y el hogar inteligente, la optimización energética residencial se ha convertido en una prioridad clave para reducir la huella de carbono y amortiguar los costos de vida de las familias chilenas.
+
+Este proyecto tiene como objetivo diseñar e implementar una arquitectura IoT abierta e inteligente para inmobiliarias, integrando microcontroladores de bajo costo y comunicación en tiempo real para optimizar la toma de decisiones climatizadoras de forma proactiva.`,
+      status: "Draft"
+    });
+
+    // 8. Trace Links
+    await TraceLink.create({
+      project: projectId,
+      sourceId: req1._id,
+      sourceType: "Requirement",
+      targetId: t2._id,
+      targetType: "Task",
+      description: "La tarea implementa el gráfico en tiempo real del requerimiento funcional RF-01."
+    });
+
+    await TraceLink.create({
+      project: projectId,
+      sourceId: req3._id,
+      sourceType: "Requirement",
+      targetId: adr._id,
+      targetType: "ADRDecision",
+      description: "El requerimiento no funcional de cifrado está sustentado por la decisión arquitectónica ADR-001."
+    });
+
+    // Audit Log
+    await logAudit(
+      req,
+      projectId.toString(),
+      'CREATE_PROJECT',
+      'Project',
+      projectId.toString(),
+      `Created complete test project with mock data for testing purposes.`
+    );
+
+    return res.status(201).json({
+      message: "Proyecto de prueba completo cargado exitosamente.",
+      project
+    });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+

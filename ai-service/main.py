@@ -44,6 +44,19 @@ class ReportSectionRequest(BaseModel):
     instruction: str
     rag_context: Optional[str] = None
 
+class AutocompleteSectionRequest(BaseModel):
+    current_content: str
+    section_title: str
+    template_type: str
+    project_context: Dict[str, Any]
+    instruction: Optional[str] = None
+
+class InlineSuggestRequest(BaseModel):
+    current_text: str
+    section_title: str
+    template_type: str
+    project_context: Dict[str, Any]
+
 class CompareStacksRequest(BaseModel):
     options: List[str]
     criterias: List[str]
@@ -215,6 +228,68 @@ async def generate_report_section(req: ReportSectionRequest):
         return sanitize_json_response(raw_content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to parse report section JSON: {str(e)}")
+
+@app.post("/ai/autocomplete-report-section")
+async def autocomplete_report_section(req: AutocompleteSectionRequest):
+    system_prompt = (
+        "Eres un redactor académico de nivel de postgrado y co-autor de una tesis de ingeniería de software. "
+        "Tu tarea es continuar redactando un párrafo o sección del informe que el usuario ya ha comenzado.\n"
+        "Contexto del Proyecto:\n"
+        f"- Nombre: {req.project_context.get('name')}\n"
+        f"- Descripción: {req.project_context.get('description')}\n"
+        f"- Problema: {req.project_context.get('problem')}\n"
+        f"- Objetivos: {req.project_context.get('objectives')}\n"
+        f"- Restricciones: {req.project_context.get('restrictions')}\n"
+        f"- Empresa: {req.project_context.get('companyName')}\n\n"
+        "Debes analizar el contenido actual del capítulo/sección y proveer una continuación lógica, fluida y con el mismo estilo y tono formal de redacción.\n"
+        "Solo genera el fragmento de texto de autocompletado en sí mismo (unas 100-300 palabras). "
+        "No vuelvas a escribir el contenido que el usuario ya aportó, solo continúa desde donde termina.\n"
+    )
+    if req.instruction:
+        system_prompt += f"Instrucción específica de continuación: {req.instruction}\n\n"
+        
+    system_prompt += (
+        "Devuelve un JSON estructurado con exactamente la siguiente llave:\n"
+        "- 'completion': El fragmento de texto continuo en Markdown que autocompleta el texto del usuario.\n"
+        "No agregues texto explicativo por fuera del JSON."
+    )
+    
+    user_prompt = (
+        f"Sección: '{req.section_title}' (Tipo de plantilla: '{req.template_type}')\n\n"
+        f"Contenido actual escrito por el usuario:\n\"\"\"\n{req.current_content}\n\"\"\""
+    )
+    
+    raw_content = await call_openrouter(system_prompt, user_prompt, is_json=True)
+    try:
+        return sanitize_json_response(raw_content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse autocomplete JSON: {str(e)}")
+
+@app.post("/ai/inline-suggest")
+async def inline_suggest(req: InlineSuggestRequest):
+    system_prompt = (
+        "Eres un co-autor inteligente de una tesis académica de ingeniería de software.\n"
+        "Tu tarea es sugerir la continuación inmediata del texto (una sola frase, máximo 15 palabras) "
+        "comenzando exactamente desde la última palabra escrita por el usuario. "
+        "Sé coherente con el contexto del proyecto y el tipo de sección.\n"
+        "Contexto del Proyecto:\n"
+        f"- Nombre: {req.project_context.get('name')}\n"
+        f"- Descripción: {req.project_context.get('description')}\n"
+        f"- Planteamiento del Problema: {req.project_context.get('problem')}\n"
+        f"- Objetivos: {req.project_context.get('objectives')}\n"
+        f"- Sección: {req.section_title}\n"
+        f"- Tipo Plantilla: {req.template_type}\n\n"
+        "REGLA CRÍTICA: Devuelve un JSON estructurado con exactamente la llave 'suggestion'.\n"
+        "La sugerencia debe ser breve (máximo 15 palabras), académica, directa y continuar la última frase del usuario de forma natural. "
+        "No comiences repitiendo el texto del usuario. Empieza directamente con la siguiente palabra para completar la frase."
+    )
+    
+    user_prompt = f"Contenido actual escrito por el usuario:\n\"\"\"\n{req.current_text}\n\"\"\""
+    raw_content = await call_openrouter(system_prompt, user_prompt, is_json=True)
+    try:
+        return sanitize_json_response(raw_content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse inline suggestion JSON: {str(e)}")
 
 @app.post("/ai/compare-stacks")
 async def compare_stacks(req: CompareStacksRequest):

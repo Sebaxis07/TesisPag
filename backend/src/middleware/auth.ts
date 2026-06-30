@@ -22,6 +22,9 @@ export const protect = async (req: AuthRequest, res: Response, next: NextFunctio
       if (!req.user) {
         return res.status(401).json({ message: 'User not found' });
       }
+      if (req.user.role === 'Creador') {
+        req.user.role = 'Admin';
+      }
       return next();
     } catch (error) {
       console.error(error);

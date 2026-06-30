@@ -28,6 +28,11 @@ export const Reports: React.FC = () => {
   // Live markdown text
   const [liveContent, setLiveContent] = useState('');
   const [saving, setSaving] = useState(false);
+  const [autocompleteRunning, setAutocompleteRunning] = useState(false);
+
+  // Inline smart suggestions
+  const [inlineSuggestion, setInlineSuggestion] = useState('');
+  const [fetchingSuggestion, setFetchingSuggestion] = useState(false);
 
   const API_URL = 'http://localhost:5000/api';
   const headers = useAuthStore.getState().getAuthHeaders();
@@ -65,7 +70,88 @@ export const Reports: React.FC = () => {
     } else {
       setLiveContent('');
     }
+    setInlineSuggestion('');
   }, [selectedSection]);
+
+  // Debounce effect to request inline suggestions when the user stops typing
+  useEffect(() => {
+    if (!selectedSection || !liveContent.trim()) {
+      setInlineSuggestion('');
+      return;
+    }
+
+    // Instantly hide previous suggestion as user edits
+    setInlineSuggestion('');
+
+    const delayDebounce = setTimeout(async () => {
+      // Don't request for very short texts
+      if (liveContent.trim().length < 15) return;
+
+      setFetchingSuggestion(true);
+      try {
+        const response = await fetch(`${API_URL}/reports/${selectedSection._id}/inline-suggest`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentContent: liveContent })
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.suggestion && data.suggestion.trim()) {
+            setInlineSuggestion(data.suggestion);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching inline suggestion:', err);
+      } finally {
+        setFetchingSuggestion(false);
+      }
+    }, 1200); // 1.2s delay of inactivity
+
+    return () => clearTimeout(delayDebounce);
+  }, [liveContent, selectedSection]);
+
+  const acceptInlineSuggestion = (textareaElement?: HTMLTextAreaElement | null) => {
+    if (!inlineSuggestion) return;
+    
+    let start = liveContent.length;
+    let end = liveContent.length;
+    let targetTextarea = textareaElement;
+
+    if (!targetTextarea) {
+      targetTextarea = document.getElementById('report-editor-textarea') as HTMLTextAreaElement;
+    }
+
+    if (targetTextarea) {
+      start = targetTextarea.selectionStart;
+      end = targetTextarea.selectionEnd;
+    }
+
+    const needsSpace = start > 0 && 
+                       !liveContent.substring(0, start).endsWith(' ') && 
+                       !liveContent.substring(0, start).endsWith('\n') && 
+                       !inlineSuggestion.startsWith(' ');
+
+    const textToInsert = (needsSpace ? ' ' : '') + inlineSuggestion;
+    const newContent = liveContent.substring(0, start) + textToInsert + liveContent.substring(end);
+
+    setLiveContent(newContent);
+    setInlineSuggestion('');
+
+    if (targetTextarea) {
+      setTimeout(() => {
+        targetTextarea!.focus();
+        targetTextarea!.selectionStart = targetTextarea!.selectionEnd = start + textToInsert.length;
+      }, 0);
+    }
+  };
+
+  const handleTextareaKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Tab' && inlineSuggestion) {
+      e.preventDefault();
+      acceptInlineSuggestion(e.currentTarget);
+    }
+  };
 
   const handleAddSection = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -141,6 +227,37 @@ export const Reports: React.FC = () => {
       console.error(err);
     } finally {
       setAiRunning(false);
+    }
+  };
+
+  const handleAutocomplete = async () => {
+    if (!selectedSection) return;
+    setAutocompleteRunning(true);
+    try {
+      const response = await fetch(`${API_URL}/reports/${selectedSection._id}/autocomplete`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          currentContent: liveContent,
+          instruction: aiInstruction
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.completion) {
+          const separator = liveContent.endsWith('\n') || liveContent.length === 0 ? '' : '\n\n';
+          setLiveContent(prev => prev + separator + data.completion);
+        }
+      } else {
+        const errData = await response.json();
+        alert(errData.message || 'Error al autocompletar la sección.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error de red al intentar conectar con el servidor.');
+    } finally {
+      setAutocompleteRunning(false);
     }
   };
 
@@ -229,20 +346,65 @@ export const Reports: React.FC = () => {
               <div className="xl:col-span-2 space-y-4">
                 <div className="flex justify-between items-center px-1">
                   <span className="text-xs font-mono text-zinc-400 uppercase">Redactor Markdown Académico</span>
-                  <button
-                    onClick={handleSaveContent}
-                    disabled={saving}
-                    className="flex items-center gap-1.5 bg-black text-white hover:bg-zinc-800 disabled:opacity-50 text-[11px] font-bold px-3 py-1.5 rounded transition-colors"
-                  >
-                    <Save className="w-3.5 h-3.5" /> {saving ? 'Guardando...' : 'Guardar Sección'}
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleAutocomplete}
+                      disabled={autocompleteRunning || !selectedSection}
+                      className="flex items-center gap-1.5 bg-zinc-150 hover:bg-zinc-200 border border-zinc-300 text-black disabled:opacity-50 text-[11px] font-bold px-3 py-1.5 rounded transition-colors"
+                    >
+                      <BrainCircuit className="w-3.5 h-3.5" /> {autocompleteRunning ? 'Autocompletando...' : 'Autocompletar con IA'}
+                    </button>
+                    <button
+                      onClick={handleSaveContent}
+                      disabled={saving}
+                      className="flex items-center gap-1.5 bg-black text-white hover:bg-zinc-800 disabled:opacity-50 text-[11px] font-bold px-3 py-1.5 rounded transition-colors"
+                    >
+                      <Save className="w-3.5 h-3.5" /> {saving ? 'Guardando...' : 'Guardar Sección'}
+                    </button>
+                  </div>
                 </div>
-                <textarea
-                  value={liveContent}
-                  onChange={e => setLiveContent(e.target.value)}
-                  className="w-full bg-white border border-zinc-200 rounded-lg p-6 text-xs text-zinc-800 h-[450px] focus:outline-none focus:border-zinc-400 leading-relaxed font-sans shadow-sm"
-                  placeholder="# Título de la Sección\n\nComienza a escribir aquí tu informe..."
-                />
+                <div className="relative">
+                  <textarea
+                    id="report-editor-textarea"
+                    value={liveContent}
+                    onChange={e => setLiveContent(e.target.value)}
+                    onKeyDown={handleTextareaKeyDown}
+                    className="w-full bg-white border border-zinc-200 rounded-lg p-6 text-xs text-zinc-800 h-[450px] focus:outline-none focus:border-zinc-400 leading-relaxed font-sans shadow-sm"
+                    placeholder="# Título de la Sección&#10;&#10;Comienza a escribir aquí tu informe..."
+                  />
+
+                  {/* Smart inline suggestion overlay/badge */}
+                  {inlineSuggestion && (
+                    <div className="absolute bottom-4 left-4 right-4 bg-zinc-50 border border-zinc-200 rounded px-3 py-2 flex items-center justify-between text-[11px] shadow-sm animate-fade-in z-10">
+                      <span className="text-zinc-600 truncate pr-4 text-left">
+                        💡 <strong className="text-black">Sugerencia de tesis:</strong> <span className="italic text-zinc-800">"...{inlineSuggestion}..."</span>
+                      </span>
+                      <div className="flex gap-2 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => acceptInlineSuggestion(null)}
+                          className="bg-black hover:bg-zinc-800 text-white text-[9px] font-bold px-2 py-1 rounded transition-colors"
+                        >
+                          Tab / Aceptar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setInlineSuggestion('')}
+                          className="text-zinc-400 hover:text-red-650 text-[9px] font-bold px-1.5 py-1"
+                        >
+                          Ignorar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {fetchingSuggestion && (
+                    <div className="absolute bottom-4 right-4 text-[10px] text-zinc-400 italic bg-white px-2 py-1 rounded border border-zinc-100 flex items-center gap-1.5 shadow-sm">
+                      <span className="w-1.5 h-1.5 bg-black rounded-full animate-ping" />
+                      Pensando sugerencia...
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* AI Writer Options */}

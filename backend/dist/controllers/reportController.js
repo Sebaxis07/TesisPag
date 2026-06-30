@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.generateReportSectionAI = exports.deleteDocument = exports.updateDocument = exports.getDocumentById = exports.getDocumentsByProject = exports.createDocument = void 0;
+exports.getInlineSuggestionAI = exports.autocompleteReportSectionAI = exports.generateReportSectionAI = exports.deleteDocument = exports.updateDocument = exports.getDocumentById = exports.getDocumentsByProject = exports.createDocument = void 0;
 const models_1 = require("../models");
 const auth_1 = require("../middleware/auth");
 const auditLogger_1 = require("../utils/auditLogger");
@@ -198,3 +198,121 @@ const generateReportSectionAI = async (req, res) => {
     }
 };
 exports.generateReportSectionAI = generateReportSectionAI;
+const autocompleteReportSectionAI = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { currentContent, instruction } = req.body;
+        const doc = await models_1.Document.findById(id);
+        if (!doc) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
+        const role = await (0, auth_1.getProjectRole)(req.user._id, doc.project.toString());
+        const isOwner = doc.owner && doc.owner.toString() === req.user._id.toString();
+        const isAdmin = role === 'Admin' || req.user.role === 'Admin';
+        const isEditor = role === 'Editor';
+        if (!isAdmin && !isEditor && !isOwner) {
+            return res.status(403).json({ message: 'No tienes permisos para ejecutar el autocompletado en este documento.' });
+        }
+        const project = await models_1.Project.findById(doc.project);
+        const projectContext = project ? {
+            name: project.name,
+            description: project.description,
+            problem: project.problem,
+            objectives: project.objectives,
+            restrictions: project.restrictions,
+            companyName: project.companyName
+        } : {};
+        let completion = '';
+        try {
+            const response = await fetch(`${AI_SERVICE_URL}/ai/autocomplete-report-section`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    current_content: currentContent || '',
+                    section_title: doc.title,
+                    template_type: doc.templateType,
+                    project_context: projectContext,
+                    instruction: instruction || undefined
+                })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                completion = data.completion;
+            }
+            else {
+                throw new Error(`AI Service returned code ${response.status}`);
+            }
+        }
+        catch (err) {
+            console.error('AI Service Autocomplete Error:', err);
+            return res.status(502).json({ message: 'El servicio de IA para autocompletado de informes no está disponible.' });
+        }
+        await (0, auditLogger_1.logAudit)(req, doc.project.toString(), 'AUTOCOMPLETE_REPORT_AI', 'Document', doc._id.toString(), `Title: ${doc.title}`);
+        return res.json({ completion });
+    }
+    catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+exports.autocompleteReportSectionAI = autocompleteReportSectionAI;
+const getInlineSuggestionAI = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { currentContent } = req.body;
+        const doc = await models_1.Document.findById(id);
+        if (!doc) {
+            return res.status(404).json({ message: 'Document not found' });
+        }
+        const role = await (0, auth_1.getProjectRole)(req.user._id, doc.project.toString());
+        const isOwner = doc.owner && doc.owner.toString() === req.user._id.toString();
+        const isAdmin = role === 'Admin' || req.user.role === 'Admin';
+        const isEditor = role === 'Editor';
+        if (!isAdmin && !isEditor && !isOwner) {
+            return res.status(403).json({ message: 'No tienes permisos para consultar sugerencias en este documento.' });
+        }
+        const project = await models_1.Project.findById(doc.project);
+        const projectContext = project ? {
+            name: project.name,
+            description: project.description,
+            problem: project.problem,
+            objectives: project.objectives,
+            restrictions: project.restrictions,
+            companyName: project.companyName
+        } : {};
+        // Only send the last 1000 characters to keep LLM context fast and cost-effective
+        const truncatedText = (currentContent || '').slice(-1000);
+        let suggestion = '';
+        try {
+            const response = await fetch(`${AI_SERVICE_URL}/ai/inline-suggest`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    current_text: truncatedText,
+                    section_title: doc.title,
+                    template_type: doc.templateType,
+                    project_context: projectContext
+                })
+            });
+            if (response.ok) {
+                const data = await response.json();
+                suggestion = data.suggestion;
+            }
+            else {
+                throw new Error(`AI Service returned code ${response.status}`);
+            }
+        }
+        catch (err) {
+            console.error('AI Service Inline Suggestion Error:', err);
+            return res.status(502).json({ message: 'El servicio de IA para sugerencias no está disponible.' });
+        }
+        return res.json({ suggestion });
+    }
+    catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+exports.getInlineSuggestionAI = getInlineSuggestionAI;

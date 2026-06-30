@@ -9,7 +9,8 @@ import {
   getTeamMembers,
   removeTeamMember,
   compareProjectStacks,
-  generatePresentationDefense
+  generatePresentationDefense,
+  loadTestProject
 } from '../controllers/projectController';
 import { protect, checkProjectPermission } from '../middleware/auth';
 
@@ -19,6 +20,7 @@ router.use(protect);
 
 router.post('/', createProject);
 router.get('/', getProjects);
+router.post('/load-test-project', loadTestProject);
 router.get('/:id', getProjectById);
 router.put('/:id', updateProject);
 router.delete('/:id', deleteProject);

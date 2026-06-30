@@ -4,7 +4,7 @@ export interface UserProfile {
   _id: string;
   name: string;
   rut: string;
-  role: 'Admin' | 'Editor' | 'Viewer';
+  role: 'Admin' | 'Editor' | 'Viewer' | 'Creador';
 }
 
 interface AuthState {

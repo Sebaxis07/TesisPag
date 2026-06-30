@@ -37,11 +37,11 @@ const seed = async () => {
                 name: 'Sebastian Vasquez',
                 rut: '21.661.083-0',
                 passwordHash,
-                role: 'Admin'
+                role: 'Creador'
             },
             {
                 name: 'Paolo Grassi',
-                rut: '19.876.543-2',
+                rut: '20.994.544-4',
                 passwordHash,
                 role: 'Editor'
             },

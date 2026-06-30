@@ -1,5 +1,14 @@
 import { Router } from 'express';
-import { createDocument, getDocumentsByProject, getDocumentById, updateDocument, deleteDocument, generateReportSectionAI } from '../controllers/reportController';
+import { 
+  createDocument, 
+  getDocumentsByProject, 
+  getDocumentById, 
+  updateDocument, 
+  deleteDocument, 
+  generateReportSectionAI,
+  autocompleteReportSectionAI,
+  getInlineSuggestionAI
+} from '../controllers/reportController';
 import { protect, checkProjectPermission } from '../middleware/auth';
 
 const router = Router();
@@ -13,5 +22,7 @@ router.get('/:id', getDocumentById);
 router.put('/:id', updateDocument);
 router.delete('/:id', deleteDocument);
 router.post('/:id/generate-section', generateReportSectionAI);
+router.post('/:id/autocomplete', autocompleteReportSectionAI);
+router.post('/:id/inline-suggest', getInlineSuggestionAI);
 
 export default router;

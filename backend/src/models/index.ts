@@ -5,7 +5,7 @@ export interface IUser extends MongooseDocument {
   name: string;
   rut: string;
   passwordHash: string;
-  role: 'Admin' | 'Editor' | 'Viewer';
+  role: 'Admin' | 'Editor' | 'Viewer' | 'Creador';
   assignedProjects: Schema.Types.ObjectId[];
 }
 
@@ -13,7 +13,7 @@ const UserSchema = new Schema<IUser>({
   name: { type: String, required: true },
   rut: { type: String, required: true, unique: true, index: true },
   passwordHash: { type: String, required: true },
-  role: { type: String, enum: ['Admin', 'Editor', 'Viewer'], default: 'Viewer' },
+  role: { type: String, enum: ['Admin', 'Editor', 'Viewer', 'Creador'], default: 'Viewer' },
   assignedProjects: [{ type: Schema.Types.ObjectId, ref: 'Project' }]
 }, { timestamps: true });
 
@@ -40,7 +40,7 @@ const ProjectSchema = new Schema<IProject>({
   restrictions: { type: String, default: '' },
   companyName: { type: String, default: '' },
   companyContact: { type: String, default: '' },
-  methodology: { type: String, enum: ['Scrum', 'Kanban', 'Waterfall', 'Hibrida', 'Personalizada'], default: 'Scrum' }
+  methodology: { type: String, enum: ['Scrum', 'Kanban', 'Waterfall', 'Hibrida', 'Personalizada', 'Agile', 'Espiral', 'Prototipos', 'RUP', 'XP', 'DevOps'], default: 'Scrum' }
 }, { timestamps: true });
 
 export const Project = model<IProject>('Project', ProjectSchema);

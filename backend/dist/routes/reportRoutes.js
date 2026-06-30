@@ -11,4 +11,6 @@ router.get('/:id', reportController_1.getDocumentById);
 router.put('/:id', reportController_1.updateDocument);
 router.delete('/:id', reportController_1.deleteDocument);
 router.post('/:id/generate-section', reportController_1.generateReportSectionAI);
+router.post('/:id/autocomplete', reportController_1.autocompleteReportSectionAI);
+router.post('/:id/inline-suggest', reportController_1.getInlineSuggestionAI);
 exports.default = router;

@@ -4,7 +4,7 @@ import { useAuthStore } from '../store/AuthStore';
 import { ClipboardList, MessageSquare, Cpu, Users, Plus, FolderOpen } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
-  const { activeProject, createProject, projects } = useProjectStore();
+  const { activeProject, createProject, projects, loadTestProject } = useProjectStore();
   const { user } = useAuthStore();
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newProjName, setNewProjName] = useState('');
@@ -70,6 +70,20 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const handleLoadTestProject = async () => {
+    try {
+      const proj = await loadTestProject();
+      if (proj) {
+        alert('¡Proyecto de prueba y simulación de datos cargado con éxito!');
+      } else {
+        alert('Error al intentar cargar el proyecto de prueba.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Ocurrió un error inesperado al cargar el proyecto.');
+    }
+  };
+
   if (projects.length === 0) {
     return (
       <div className="max-w-2xl mx-auto mt-16 text-center">
@@ -78,6 +92,21 @@ export const Dashboard: React.FC = () => {
         <p className="text-sm text-zinc-500 mb-8 max-w-md mx-auto">
           No tienes ningún proyecto activo asignado. Comienza creando un nuevo proyecto de título en colaboración con tu empresa asociada.
         </p>
+
+        {user?.role === 'Creador' && (
+          <div className="mb-8 p-6 border border-dashed border-zinc-300 rounded-lg bg-zinc-50 flex items-center justify-between shadow-sm">
+            <div className="text-left pr-4">
+              <span className="text-sm font-bold text-black block">💡 ¿Quieres probar la plataforma al instante?</span>
+              <span className="text-xs text-zinc-500 mt-1 block font-sans">Carga un proyecto de simulación completo con requerimientos, tareas, minutas, ADRs y diagramas.</span>
+            </div>
+            <button
+              onClick={handleLoadTestProject}
+              className="flex items-center gap-1.5 bg-black text-white hover:bg-zinc-800 text-xs font-bold px-4 py-2.5 rounded transition-colors whitespace-nowrap shadow-md"
+            >
+              ✨ Cargar Proyecto de Prueba
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleCreateProject} className="bg-white border border-zinc-200 rounded-lg p-6 text-left space-y-4 shadow-sm">
           <h2 className="text-sm font-bold text-black border-b border-zinc-150 pb-2 mb-2">Crear Nuevo Proyecto</h2>
@@ -133,12 +162,22 @@ export const Dashboard: React.FC = () => {
             Empresa asociada: <span className="font-semibold text-black">{activeProject?.companyName}</span> · Metodología: <span className="font-mono bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded text-xs">{activeProject?.methodology}</span>
           </p>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="flex items-center gap-2 bg-black text-white hover:bg-zinc-800 text-xs font-bold px-3 py-2 rounded transition-colors"
-        >
-          <Plus className="w-4 h-4" /> Nuevo Proyecto
-        </button>
+        <div className="flex gap-2">
+          {user?.role === 'Creador' && (
+            <button
+              onClick={handleLoadTestProject}
+              className="flex items-center gap-1.5 bg-zinc-100 hover:bg-zinc-200 border border-zinc-300 text-black text-xs font-bold px-3 py-2 rounded transition-colors"
+            >
+              ✨ Cargar Proyecto de Prueba
+            </button>
+          )}
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-2 bg-black text-white hover:bg-zinc-800 text-xs font-bold px-3 py-2 rounded transition-colors"
+          >
+            <Plus className="w-4 h-4" /> Nuevo Proyecto
+          </button>
+        </div>
       </div>
 
       {/* KPI Cards */}

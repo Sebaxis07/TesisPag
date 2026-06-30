@@ -244,3 +244,138 @@ export const generateReportSectionAI = async (req: ProjectAuthRequest, res: Resp
     return res.status(500).json({ message: error.message });
   }
 };
+
+export const autocompleteReportSectionAI = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { currentContent, instruction } = req.body;
+
+    const doc = await Document.findById(id);
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const role = await getProjectRole(req.user._id, doc.project.toString());
+    const isOwner = doc.owner && doc.owner.toString() === req.user._id.toString();
+    const isAdmin = role === 'Admin' || req.user.role === 'Admin';
+    const isEditor = role === 'Editor';
+
+    if (!isAdmin && !isEditor && !isOwner) {
+      return res.status(403).json({ message: 'No tienes permisos para ejecutar el autocompletado en este documento.' });
+    }
+
+    const project = await Project.findById(doc.project);
+    const projectContext = project ? {
+      name: project.name,
+      description: project.description,
+      problem: project.problem,
+      objectives: project.objectives,
+      restrictions: project.restrictions,
+      companyName: project.companyName
+    } : {};
+
+    let completion = '';
+    try {
+      const response = await fetch(`${AI_SERVICE_URL}/ai/autocomplete-report-section`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          current_content: currentContent || '',
+          section_title: doc.title,
+          template_type: doc.templateType,
+          project_context: projectContext,
+          instruction: instruction || undefined
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json() as any;
+        completion = data.completion;
+      } else {
+        throw new Error(`AI Service returned code ${response.status}`);
+      }
+    } catch (err) {
+      console.error('AI Service Autocomplete Error:', err);
+      return res.status(502).json({ message: 'El servicio de IA para autocompletado de informes no está disponible.' });
+    }
+
+    await logAudit(
+      req,
+      doc.project.toString(),
+      'AUTOCOMPLETE_REPORT_AI',
+      'Document',
+      doc._id.toString(),
+      `Title: ${doc.title}`
+    );
+
+    return res.json({ completion });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const getInlineSuggestionAI = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { currentContent } = req.body;
+
+    const doc = await Document.findById(id);
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const role = await getProjectRole(req.user._id, doc.project.toString());
+    const isOwner = doc.owner && doc.owner.toString() === req.user._id.toString();
+    const isAdmin = role === 'Admin' || req.user.role === 'Admin';
+    const isEditor = role === 'Editor';
+
+    if (!isAdmin && !isEditor && !isOwner) {
+      return res.status(403).json({ message: 'No tienes permisos para consultar sugerencias en este documento.' });
+    }
+
+    const project = await Project.findById(doc.project);
+    const projectContext = project ? {
+      name: project.name,
+      description: project.description,
+      problem: project.problem,
+      objectives: project.objectives,
+      restrictions: project.restrictions,
+      companyName: project.companyName
+    } : {};
+
+    // Only send the last 1000 characters to keep LLM context fast and cost-effective
+    const truncatedText = (currentContent || '').slice(-1000);
+
+    let suggestion = '';
+    try {
+      const response = await fetch(`${AI_SERVICE_URL}/ai/inline-suggest`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          current_text: truncatedText,
+          section_title: doc.title,
+          template_type: doc.templateType,
+          project_context: projectContext
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json() as any;
+        suggestion = data.suggestion;
+      } else {
+        throw new Error(`AI Service returned code ${response.status}`);
+      }
+    } catch (err) {
+      console.error('AI Service Inline Suggestion Error:', err);
+      return res.status(502).json({ message: 'El servicio de IA para sugerencias no está disponible.' });
+    }
+
+    return res.json({ suggestion });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};

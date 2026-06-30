@@ -16,6 +16,9 @@ const protect = async (req, res, next) => {
             if (!req.user) {
                 return res.status(401).json({ message: 'User not found' });
             }
+            if (req.user.role === 'Creador') {
+                req.user.role = 'Admin';
+            }
             return next();
         }
         catch (error) {

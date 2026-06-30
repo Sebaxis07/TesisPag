@@ -10,7 +10,7 @@ export interface Project {
   restrictions: string;
   companyName: string;
   companyContact: string;
-  methodology: 'Scrum' | 'Kanban' | 'Waterfall' | 'Hibrida' | 'Personalizada';
+  methodology: 'Scrum' | 'Kanban' | 'Waterfall' | 'Hibrida' | 'Personalizada' | 'Agile' | 'Espiral' | 'Prototipos' | 'RUP' | 'XP' | 'DevOps';
   createdAt: string;
 }
 
@@ -43,6 +43,7 @@ interface ProjectState {
   fetchMembers: (projectId: string) => Promise<void>;
   addMember: (projectId: string, memberData: { userId: string, role: string, operationalRole?: string, workload?: number }) => Promise<boolean>;
   removeMember: (memberId: string) => Promise<boolean>;
+  loadTestProject: () => Promise<Project | null>;
 }
 
 const API_URL = 'http://localhost:5000/api';
@@ -105,6 +106,31 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         localStorage.setItem('tf_active_project_id', data._id);
         get().fetchMembers(data._id);
         return data;
+      } catch (err: any) {
+        set({ error: err.message, isLoading: false });
+        return null;
+      }
+    },
+
+    loadTestProject: async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const headers = useAuthStore.getState().getAuthHeaders();
+        const response = await fetch(`${API_URL}/projects/load-test-project`, {
+          method: 'POST',
+          headers
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || 'Error loading test project');
+        
+        set(state => ({
+          projects: [...state.projects, data.project],
+          activeProject: data.project,
+          isLoading: false
+        }));
+        localStorage.setItem('tf_active_project_id', data.project._id);
+        get().fetchMembers(data.project._id);
+        return data.project;
       } catch (err: any) {
         set({ error: err.message, isLoading: false });
         return null;

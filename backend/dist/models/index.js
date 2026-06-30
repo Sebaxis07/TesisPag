@@ -6,7 +6,7 @@ const UserSchema = new mongoose_1.Schema({
     name: { type: String, required: true },
     rut: { type: String, required: true, unique: true, index: true },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ['Admin', 'Editor', 'Viewer'], default: 'Viewer' },
+    role: { type: String, enum: ['Admin', 'Editor', 'Viewer', 'Creador'], default: 'Viewer' },
     assignedProjects: [{ type: mongoose_1.Schema.Types.ObjectId, ref: 'Project' }]
 }, { timestamps: true });
 exports.User = (0, mongoose_1.model)('User', UserSchema);

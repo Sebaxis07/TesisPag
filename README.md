@@ -130,7 +130,8 @@ Tras ejecutar el script de seed, puedes iniciar sesión utilizando las siguiente
 
 | Nombre | RUT | Contraseña | Rol |
 | :--- | :--- | :--- | :--- |
-| **Sebastian Vasquez (Admin)** | `21.661.083-0` | `admin123` | Administrador Global / Proyecto |
+| **Sebastian Vasquez (Admin)** | `21.661.083-0` | `password123` | Administrador Global / Proyecto |
+| **Paolo Grassi** | `20.994.544-4` | `password123` | Colaborador / Editor |
 | **Benjamin Flores** | `21.450.830-3` | `password123` | Colaborador / Editor |
 
 ---
