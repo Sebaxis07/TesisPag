@@ -1,0 +1,16 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const adrController_1 = require("../controllers/adrController");
+const auth_1 = require("../middleware/auth");
+const router = (0, express_1.Router)();
+router.use(auth_1.protect);
+router.post('/', (0, auth_1.checkProjectPermission)(['Admin', 'Editor']), adrController_1.createADR);
+router.get('/project/:projectId', (0, auth_1.checkProjectPermission)(['Admin', 'Editor', 'Viewer']), adrController_1.getADRsByProject);
+router.post('/:id/submit', adrController_1.submitADRForReview);
+router.post('/:id/reviews', adrController_1.submitADRReview);
+router.get('/:id/reviews', adrController_1.getADRReviews);
+router.get('/:id', adrController_1.getADRById);
+router.put('/:id', adrController_1.updateADR);
+router.delete('/:id', adrController_1.deleteADR);
+exports.default = router;

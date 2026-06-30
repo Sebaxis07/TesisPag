@@ -1,0 +1,14 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const reportController_1 = require("../controllers/reportController");
+const auth_1 = require("../middleware/auth");
+const router = (0, express_1.Router)();
+router.use(auth_1.protect);
+router.post('/', (0, auth_1.checkProjectPermission)(['Admin', 'Editor']), reportController_1.createDocument);
+router.get('/project/:projectId', (0, auth_1.checkProjectPermission)(['Admin', 'Editor', 'Viewer']), reportController_1.getDocumentsByProject);
+router.get('/:id', reportController_1.getDocumentById);
+router.put('/:id', reportController_1.updateDocument);
+router.delete('/:id', reportController_1.deleteDocument);
+router.post('/:id/generate-section', reportController_1.generateReportSectionAI);
+exports.default = router;

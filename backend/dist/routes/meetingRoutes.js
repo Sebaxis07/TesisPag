@@ -1,0 +1,14 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const meetingController_1 = require("../controllers/meetingController");
+const auth_1 = require("../middleware/auth");
+const router = (0, express_1.Router)();
+router.use(auth_1.protect);
+router.post('/', (0, auth_1.checkProjectPermission)(['Admin', 'Editor']), meetingController_1.createMeeting);
+router.get('/project/:projectId', (0, auth_1.checkProjectPermission)(['Admin', 'Editor', 'Viewer']), meetingController_1.getMeetingsByProject);
+router.get('/:id', meetingController_1.getMeetingById);
+router.put('/:id', meetingController_1.updateMeeting);
+router.delete('/:id', meetingController_1.deleteMeeting);
+router.post('/:id/summarize', meetingController_1.triggerAISummary);
+exports.default = router;

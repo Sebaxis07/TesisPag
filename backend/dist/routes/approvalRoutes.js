@@ -1,0 +1,11 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const approvalController_1 = require("../controllers/approvalController");
+const auth_1 = require("../middleware/auth");
+const router = (0, express_1.Router)();
+router.use(auth_1.protect);
+router.post('/', (0, auth_1.checkProjectPermission)(['Admin', 'Editor']), approvalController_1.requestApproval);
+router.post('/:id/review', (0, auth_1.checkProjectPermission)(['Admin', 'Editor', 'Viewer']), approvalController_1.submitApproval);
+router.get('/project/:projectId', (0, auth_1.checkProjectPermission)(['Admin', 'Editor', 'Viewer']), approvalController_1.getProjectApprovals);
+exports.default = router;

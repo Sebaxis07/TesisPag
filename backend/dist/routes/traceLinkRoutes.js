@@ -1,0 +1,11 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const traceLinkController_1 = require("../controllers/traceLinkController");
+const auth_1 = require("../middleware/auth");
+const router = (0, express_1.Router)();
+router.use(auth_1.protect);
+router.post('/', (0, auth_1.checkProjectPermission)(['Admin', 'Editor']), traceLinkController_1.createTraceLink);
+router.get('/project/:projectId', (0, auth_1.checkProjectPermission)(['Admin', 'Editor', 'Viewer']), traceLinkController_1.getTraceLinksByProject);
+router.delete('/:id', traceLinkController_1.deleteTraceLink);
+exports.default = router;

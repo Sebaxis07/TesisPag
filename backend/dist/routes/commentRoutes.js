@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const commentController_1 = require("../controllers/commentController");
+const auth_1 = require("../middleware/auth");
+const router = (0, express_1.Router)();
+router.use(auth_1.protect);
+router.post('/', commentController_1.createComment);
+router.post('/:id/reply', commentController_1.replyComment);
+router.patch('/:id/resolve', commentController_1.resolveComment);
+router.get('/project/:projectId', (0, auth_1.checkProjectPermission)(['Admin', 'Editor', 'Viewer']), commentController_1.getProjectComments);
+exports.default = router;
