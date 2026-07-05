@@ -22,6 +22,9 @@ import presenceRoutes from './routes/presenceRoutes';
 import commentRoutes from './routes/commentRoutes';
 import deliverableRoutes from './routes/deliverableRoutes';
 import approvalRoutes from './routes/approvalRoutes';
+import proposalRoutes from './routes/proposalRoutes';
+import reviewRoutes from './routes/reviewRoutes';
+import evaluationRoutes from './routes/evaluationRoutes';
 
 dotenv.config();
 
@@ -71,6 +74,9 @@ app.use('/api/presence', presenceRoutes);
 app.use('/api/comments', commentRoutes);
 app.use('/api/deliverables', deliverableRoutes);
 app.use('/api/approvals', approvalRoutes);
+app.use('/api/proposals', proposalRoutes);
+app.use('/api/reviews', reviewRoutes);
+app.use('/api/evaluations', evaluationRoutes);
 
 // Global Error Handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

@@ -1,0 +1,16 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const proposalController_1 = require("../controllers/proposalController");
+const auth_1 = require("../middleware/auth");
+const router = (0, express_1.Router)();
+router.use(auth_1.protect);
+router.post('/', proposalController_1.createProposal);
+router.get('/student', proposalController_1.getProposalsByStudent);
+router.get('/advisor', proposalController_1.getProposalsForAdvisor);
+router.get('/project/:projectId', proposalController_1.getProposalsByProject);
+router.get('/:id', proposalController_1.getProposalById);
+router.put('/:id', proposalController_1.updateProposal);
+router.post('/:id/submit', proposalController_1.submitProposal);
+router.post('/:id/review', proposalController_1.reviewProposal);
+exports.default = router;

@@ -6,16 +6,17 @@ import { logAudit } from '../utils/auditLogger';
 // 1. Create ADR (Draft state initially)
 export const createADR = async (req: ProjectAuthRequest, res: Response) => {
   try {
-    const { project, code, title, context, decision, consequences } = req.body;
+    const { project, code, title, context, decision, consequences, affectedRequirements, affectedStack, supersededBy } = req.body;
 
     if (!project || !code || !title) {
       return res.status(400).json({ message: 'Project, code, and title are required' });
     }
 
-    // Role check (Admin or Editor)
+    // Role check (Admin, Editor, or Docente/Coordinador)
+    const isTeacherOrAdmin = ['Docente', 'Coordinador', 'Admin'].includes(req.user.role);
     const role = req.projectRole || (req.user.role === 'Admin' ? 'Admin' : await getProjectRole(req.user._id, project));
-    if (role !== 'Admin' && role !== 'Editor') {
-      return res.status(403).json({ message: 'Only Admins or Editors can create ADRs' });
+    if (role !== 'Admin' && role !== 'Editor' && !isTeacherOrAdmin) {
+      return res.status(403).json({ message: 'Only Admins, Editors, or Docentes can create ADRs' });
     }
 
     const adr = await ADRDecision.create({
@@ -29,8 +30,19 @@ export const createADR = async (req: ProjectAuthRequest, res: Response) => {
       consequences: consequences || '',
       version: 1,
       requiredApprovals: 2, // Quorum of 2 out of 3 team members
-      currentApprovals: 0
+      currentApprovals: 0,
+      affectedRequirements: affectedRequirements || [],
+      affectedStack: affectedStack || [],
+      supersededBy: supersededBy || null,
+      isCriticalDecision: req.body.isCriticalDecision || false
     });
+
+    if (req.body.supersededAdrId) {
+      await ADRDecision.findByIdAndUpdate(req.body.supersededAdrId, {
+        status: 'Superseded',
+        supersededBy: adr._id
+      });
+    }
 
     await logAudit(req, project, 'CREATE_ADR', 'ADRDecision', adr._id.toString(), `Code: ${code}, Title: ${title} (Draft)`);
 
@@ -85,20 +97,27 @@ export const updateADR = async (req: ProjectAuthRequest, res: Response) => {
 
     const role = await getProjectRole(req.user._id, adr.project.toString());
     const isOwner = adr.owner && adr.owner.toString() === req.user._id.toString();
-    const isAdmin = role === 'Admin' || req.user.role === 'Admin';
+    const isTeacherOrAdmin = ['Docente', 'Coordinador', 'Admin'].includes(req.user.role) || role === 'Admin';
     const isEditor = role === 'Editor';
 
-    if (!isAdmin && !isEditor && !isOwner) {
+    if (!isTeacherOrAdmin && !isEditor && !isOwner) {
       return res.status(403).json({ message: 'No tienes permisos para editar este ADR.' });
     }
 
-    // Critical block: Structural edit forbidden for Accepted ADRs
-    if (adr.status === 'Accepted' && req.user.role !== 'Admin') {
+    // Critical block: Structural edit forbidden for Accepted ADRs unless teacher/admin
+    if (adr.status === 'Accepted' && !isTeacherOrAdmin) {
       return res.status(403).json({ message: 'Este ADR ya ha sido aprobado y aceptado formalmente. Edición bloqueada.' });
     }
 
     const oldStatus = adr.status;
     Object.assign(adr, req.body);
+
+    if (req.body.supersededAdrId) {
+      await ADRDecision.findByIdAndUpdate(req.body.supersededAdrId, {
+        status: 'Superseded',
+        supersededBy: adr._id
+      });
+    }
 
     // If edited after changes requested, increment version and reset reviews
     if (oldStatus === 'ChangesRequested') {
@@ -135,10 +154,10 @@ export const deleteADR = async (req: ProjectAuthRequest, res: Response) => {
 
     const role = await getProjectRole(req.user._id, adr.project.toString());
     const isOwner = adr.owner && adr.owner.toString() === req.user._id.toString();
-    const isAdmin = role === 'Admin' || req.user.role === 'Admin';
+    const isTeacherOrAdmin = ['Docente', 'Coordinador', 'Admin'].includes(req.user.role) || role === 'Admin';
 
-    if (!isAdmin && !isOwner) {
-      return res.status(403).json({ message: 'Solo el administrador del proyecto o el creador del ADR pueden eliminarlo.' });
+    if (!isTeacherOrAdmin && !isOwner) {
+      return res.status(403).json({ message: 'Solo el administrador, el docente o el creador del ADR pueden eliminarlo.' });
     }
 
     await ADRDecision.findByIdAndDelete(req.params.id);
@@ -168,8 +187,9 @@ export const submitADRForReview = async (req: ProjectAuthRequest, res: Response)
     }
 
     const isOwner = adr.owner && adr.owner.toString() === req.user._id.toString();
-    if (!isOwner && req.user.role !== 'Admin') {
-      return res.status(403).json({ message: 'Solo el propietario de este ADR puede enviarlo a revisión.' });
+    const isTeacherOrAdmin = ['Docente', 'Coordinador', 'Admin'].includes(req.user.role);
+    if (!isOwner && !isTeacherOrAdmin) {
+      return res.status(403).json({ message: 'Solo el propietario o el docente pueden enviar este ADR a revisión.' });
     }
 
     if (adr.status !== 'Draft' && adr.status !== 'ChangesRequested') {

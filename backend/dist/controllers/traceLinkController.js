@@ -4,6 +4,40 @@ exports.getTraceLinksByProject = exports.deleteTraceLink = exports.createTraceLi
 const models_1 = require("../models");
 const auth_1 = require("../middleware/auth");
 const auditLogger_1 = require("../utils/auditLogger");
+const requirementStatusHelper_1 = require("../utils/requirementStatusHelper");
+async function syncRequirementLinks(projectId, reqId, itemType, itemId, action) {
+    try {
+        const reqDoc = await models_1.Requirement.findById(reqId);
+        if (!reqDoc)
+            return;
+        let field = 'linkedTasks';
+        if (itemType === 'Task')
+            field = 'linkedTasks';
+        else if (itemType === 'Meeting')
+            field = 'linkedMeetings';
+        else if (itemType === 'ADRDecision')
+            field = 'linkedADRs';
+        else if (itemType === 'Deliverable' || itemType === 'Document')
+            field = 'linkedDeliverables';
+        else
+            return;
+        const itemIdStr = itemId.toString();
+        if (action === 'add') {
+            const alreadyHas = reqDoc[field].some((id) => id.toString() === itemIdStr);
+            if (!alreadyHas) {
+                reqDoc[field].push(itemId);
+                await reqDoc.save();
+            }
+        }
+        else {
+            reqDoc[field] = reqDoc[field].filter((id) => id.toString() !== itemIdStr);
+            await reqDoc.save();
+        }
+    }
+    catch (err) {
+        console.error('Error syncing requirement link:', err);
+    }
+}
 const createTraceLink = async (req, res) => {
     try {
         const { project, sourceType, sourceId, targetType, targetId, linkType } = req.body;
@@ -33,6 +67,15 @@ const createTraceLink = async (req, res) => {
             linkType,
             createdBy: req.user._id
         });
+        // Sync requirement direct fields
+        if (sourceType === 'Requirement') {
+            await syncRequirementLinks(project, sourceId, targetType, targetId, 'add');
+            await (0, requirementStatusHelper_1.recalculateRequirementStatus)(sourceId);
+        }
+        else if (targetType === 'Requirement') {
+            await syncRequirementLinks(project, targetId, sourceType, sourceId, 'add');
+            await (0, requirementStatusHelper_1.recalculateRequirementStatus)(targetId);
+        }
         await (0, auditLogger_1.logAudit)(req, project, 'CREATE_TRACE_LINK', 'TraceLink', traceLink._id.toString(), `Linked ${sourceType}(${sourceId}) to ${targetType}(${targetId}) with type ${linkType}`);
         return res.status(201).json(traceLink);
     }
@@ -55,6 +98,15 @@ const deleteTraceLink = async (req, res) => {
             return res.status(403).json({ message: 'Solo el administrador del proyecto o el creador del enlace pueden eliminarlo.' });
         }
         await models_1.TraceLink.findByIdAndDelete(id);
+        // Sync requirement direct fields
+        if (traceLink.sourceType === 'Requirement') {
+            await syncRequirementLinks(traceLink.project.toString(), traceLink.sourceId.toString(), traceLink.targetType, traceLink.targetId.toString(), 'remove');
+            await (0, requirementStatusHelper_1.recalculateRequirementStatus)(traceLink.sourceId.toString());
+        }
+        else if (traceLink.targetType === 'Requirement') {
+            await syncRequirementLinks(traceLink.project.toString(), traceLink.targetId.toString(), traceLink.sourceType, traceLink.sourceId.toString(), 'remove');
+            await (0, requirementStatusHelper_1.recalculateRequirementStatus)(traceLink.targetId.toString());
+        }
         await (0, auditLogger_1.logAudit)(req, traceLink.project.toString(), 'DELETE_TRACE_LINK', 'TraceLink', traceLink._id.toString(), `Unlinked ${traceLink.sourceType}(${traceLink.sourceId}) from ${traceLink.targetType}(${traceLink.targetId})`);
         return res.json({ message: 'Trace link deleted successfully.' });
     }

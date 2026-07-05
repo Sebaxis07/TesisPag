@@ -1,0 +1,18 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const evaluationController_1 = require("../controllers/evaluationController");
+const auth_1 = require("../middleware/auth");
+const router = (0, express_1.Router)();
+router.use(auth_1.protect);
+router.post('/rubrics', evaluationController_1.createRubric);
+router.get('/rubrics', evaluationController_1.getRubrics);
+router.get('/rubrics/:id', evaluationController_1.getRubricById);
+router.post('/evaluations', evaluationController_1.createProjectEvaluation);
+router.get('/evaluations/evaluator', evaluationController_1.getEvaluationsByEvaluator);
+router.get('/evaluations/project/:projectId', evaluationController_1.getEvaluationsByProject);
+router.get('/evaluations/projects/:projectId', evaluationController_1.getEvaluationsByProject);
+router.post('/evaluations/projects/:projectId', evaluationController_1.createProjectEvaluation);
+router.get('/evaluations/:id', evaluationController_1.getEvaluationById);
+router.put('/evaluations/:id', evaluationController_1.updateProjectEvaluation);
+exports.default = router;

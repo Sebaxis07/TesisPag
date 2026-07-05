@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getProjectRole = exports.checkProjectPermission = exports.authorize = exports.protect = void 0;
+exports.getProjectRole = exports.checkProjectPermission = exports.authorizeCreator = exports.authorize = exports.protect = void 0;
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const models_1 = require("../models");
 const protect = async (req, res, next) => {
@@ -43,6 +43,23 @@ const authorize = (...roles) => {
     };
 };
 exports.authorize = authorize;
+const authorizeCreator = async (req, res, next) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({ message: 'Not authorized' });
+        }
+        const user = await models_1.User.findById(req.user._id);
+        if (!user || user.role !== 'Creador') {
+            return res.status(403).json({ message: 'Solo el Creador tiene permisos para realizar esta acción.' });
+        }
+        next();
+    }
+    catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'Error de servidor al autorizar al Creador.' });
+    }
+};
+exports.authorizeCreator = authorizeCreator;
 const checkProjectPermission = (requiredRoles) => {
     return async (req, res, next) => {
         try {

@@ -31,6 +31,11 @@ interface ADR {
   rejectedAt?: string;
   requiredApprovals: number;
   currentApprovals: number;
+  affectedRequirements?: string[];
+  affectedStack?: string[];
+  supersededBy?: string;
+  isCriticalDecision?: boolean;
+  advisorFeedback?: string;
 }
 
 interface ADRReview {
@@ -52,6 +57,14 @@ export const TechnicalSolution: React.FC = () => {
   const [adrs, setAdrs] = useState<ADR[]>([]);
   const [selectedAdr, setSelectedAdr] = useState<ADR | null>(null);
   const [reviews, setReviews] = useState<ADRReview[]>([]);
+  const [requirements, setRequirements] = useState<any[]>([]);
+
+  // Navigation tabs
+  const [activeTab, setActiveTab] = useState<'board' | 'timeline' | 'impact' | 'compare'>('board');
+
+  // Compare mode selections
+  const [selectedCompareAdrAId, setSelectedCompareAdrAId] = useState('');
+  const [selectedCompareAdrBId, setSelectedCompareAdrBId] = useState('');
   
   // Modals and Forms
   const [showModal, setShowModal] = useState(false);
@@ -61,10 +74,15 @@ export const TechnicalSolution: React.FC = () => {
   const [adrContext, setAdrContext] = useState('');
   const [adrDecision, setAdrDecision] = useState('');
   const [adrConsequences, setAdrConsequences] = useState('');
+  const [formAffectedReqs, setFormAffectedReqs] = useState<string[]>([]);
+  const [formAffectedTechs, setFormAffectedTechs] = useState<string[]>([]);
+  const [formSupersededAdrId, setFormSupersededAdrId] = useState('');
 
   // Review Form
   const [reviewDecision, setReviewDecision] = useState<'Approved' | 'Rejected' | 'SuggestedChanges'>('Approved');
   const [reviewComment, setReviewComment] = useState('');
+  const [isCritical, setIsCritical] = useState(false);
+  const [advisorComments, setAdvisorComments] = useState('');
 
   const API_URL = 'http://localhost:5000/api';
   const headers = getAuthHeaders();
@@ -102,10 +120,23 @@ export const TechnicalSolution: React.FC = () => {
     }
   };
 
+  const fetchRequirements = async () => {
+    if (!activeProject) return;
+    try {
+      const response = await fetch(`${API_URL}/requirements/project/${activeProject._id}`, { headers });
+      if (response.ok) {
+        setRequirements(await response.json());
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     if (activeProject) {
       fetchADRs();
       fetchMembers(activeProject._id);
+      fetchRequirements();
     }
   }, [activeProject]);
 
@@ -117,6 +148,14 @@ export const TechnicalSolution: React.FC = () => {
     }
   }, [selectedAdr]);
 
+  useEffect(() => {
+    if (selectedAdr) {
+      setAdvisorComments(selectedAdr.advisorFeedback || '');
+    } else {
+      setAdvisorComments('');
+    }
+  }, [selectedAdr?._id]);
+
   const handleOpenCreateModal = () => {
     setIsEditMode(false);
     setAdrCode(`ADR-${String(adrs.length + 1).padStart(2, '0')}`);
@@ -124,6 +163,10 @@ export const TechnicalSolution: React.FC = () => {
     setAdrContext('');
     setAdrDecision('');
     setAdrConsequences('');
+    setFormAffectedReqs([]);
+    setFormAffectedTechs([]);
+    setFormSupersededAdrId('');
+    setIsCritical(false);
     setShowModal(true);
   };
 
@@ -134,6 +177,10 @@ export const TechnicalSolution: React.FC = () => {
     setAdrContext(adr.context);
     setAdrDecision(adr.decision);
     setAdrConsequences(adr.consequences);
+    setFormAffectedReqs(adr.affectedRequirements || []);
+    setFormAffectedTechs(adr.affectedStack || []);
+    setFormSupersededAdrId(adr.supersededBy || '');
+    setIsCritical(adr.isCriticalDecision || false);
     setShowModal(true);
   };
 
@@ -151,7 +198,11 @@ export const TechnicalSolution: React.FC = () => {
         title: adrTitle,
         context: adrContext,
         decision: adrDecision,
-        consequences: adrConsequences
+        consequences: adrConsequences,
+        affectedRequirements: formAffectedReqs,
+        affectedStack: formAffectedTechs,
+        supersededAdrId: formSupersededAdrId || undefined,
+        isCriticalDecision: isCritical
       };
 
       const response = await fetch(url, {
@@ -202,6 +253,27 @@ export const TechnicalSolution: React.FC = () => {
       } else {
         const data = await response.json();
         alert(data.message || 'Error al enviar a revisión.');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUpdateADRFields = async (fields: Partial<ADR>) => {
+    if (!selectedAdr) return;
+    try {
+      const response = await fetch(`${API_URL}/adrs/${selectedAdr._id}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(fields)
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        setSelectedAdr(updated);
+        setAdrs(prev => prev.map(a => a._id === updated._id ? updated : a));
+      } else {
+        const errData = await response.json();
+        alert(errData.message || 'Error al actualizar el ADR');
       }
     } catch (err) {
       console.error(err);
@@ -283,8 +355,45 @@ export const TechnicalSolution: React.FC = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left: Sidebar Log */}
+      {/* Tab Navigation */}
+      <div className="flex border-b border-zinc-200 gap-1.5 pb-0.5">
+        <button
+          onClick={() => setActiveTab('board')}
+          className={`px-4 py-2 text-xs font-bold font-mono uppercase tracking-wider border-b-2 transition-all ${
+            activeTab === 'board' ? 'border-black text-black' : 'border-transparent text-zinc-400 hover:text-zinc-650'
+          }`}
+        >
+          Registro de ADRs
+        </button>
+        <button
+          onClick={() => setActiveTab('timeline')}
+          className={`px-4 py-2 text-xs font-bold font-mono uppercase tracking-wider border-b-2 transition-all ${
+            activeTab === 'timeline' ? 'border-black text-black' : 'border-transparent text-zinc-400 hover:text-zinc-650'
+          }`}
+        >
+          Línea de Tiempo
+        </button>
+        <button
+          onClick={() => setActiveTab('impact')}
+          className={`px-4 py-2 text-xs font-bold font-mono uppercase tracking-wider border-b-2 transition-all ${
+            activeTab === 'impact' ? 'border-black text-black' : 'border-transparent text-zinc-400 hover:text-zinc-650'
+          }`}
+        >
+          Matriz de Impacto
+        </button>
+        <button
+          onClick={() => setActiveTab('compare')}
+          className={`px-4 py-2 text-xs font-bold font-mono uppercase tracking-wider border-b-2 transition-all ${
+            activeTab === 'compare' ? 'border-black text-black' : 'border-transparent text-zinc-400 hover:text-zinc-650'
+          }`}
+        >
+          Comparar ADRs
+        </button>
+      </div>
+
+      {activeTab === 'board' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 text-left">
+          {/* Left: Sidebar Log */}
         <div className="space-y-4">
           <h3 className="text-xs font-extrabold text-black uppercase font-mono tracking-wider">Bitácora de Decisiones</h3>
           <div className="bg-white border border-zinc-200 rounded-xl divide-y divide-zinc-200 overflow-hidden shadow-sm">
@@ -341,6 +450,11 @@ export const TechnicalSolution: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-mono text-zinc-400 font-bold">{selectedAdr.code}</span>
                       <span className="text-xs bg-zinc-100 text-zinc-600 px-1.5 py-0.2 rounded font-mono">Versión {selectedAdr.version}</span>
+                      {selectedAdr.isCriticalDecision && (
+                        <span className="text-[9px] font-mono font-extrabold px-1.5 py-0.5 bg-red-50 text-red-700 rounded border border-red-200 uppercase">
+                          ⚠️ Decisión Crítica
+                        </span>
+                      )}
                     </div>
                     <h2 className="text-base font-bold text-black mt-1 font-sans">{selectedAdr.title}</h2>
                     <span className="text-[10px] text-zinc-400 block mt-1">Propuesto por: <strong>{ownerName}</strong></span>
@@ -390,6 +504,115 @@ export const TechnicalSolution: React.FC = () => {
                     <p className="text-xs text-zinc-700 mt-1.5 leading-relaxed font-sans bg-zinc-50 border border-zinc-200 rounded p-3 whitespace-pre-wrap">
                       {selectedAdr.consequences || "Sin consecuencias registradas."}
                     </p>
+                  </div>
+
+                  {/* Traceability and Impact Section */}
+                  <div className="border-t border-zinc-150 pt-4 space-y-4">
+                    <span className="text-[10px] font-mono text-zinc-400 uppercase block font-bold">Impacto y Trazabilidad de la Decisión</span>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Requirements affected */}
+                      <div className="bg-zinc-50 border border-zinc-200 rounded p-3 space-y-1.5">
+                        <span className="text-[9px] font-mono text-zinc-400 uppercase block font-bold">Requerimientos Impactados</span>
+                        {selectedAdr.affectedRequirements && selectedAdr.affectedRequirements.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {selectedAdr.affectedRequirements.map(reqCode => (
+                              <span key={reqCode} className="px-2 py-0.5 rounded bg-zinc-200 text-zinc-800 text-[10px] font-bold font-mono">
+                                {reqCode}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-zinc-400 text-[10px] italic">Ninguno especificado.</span>
+                        )}
+                      </div>
+
+                      {/* Stack affected */}
+                      <div className="bg-zinc-50 border border-zinc-200 rounded p-3 space-y-1.5">
+                        <span className="text-[9px] font-mono text-zinc-400 uppercase block font-bold">Tecnologías del Stack Afectadas</span>
+                        {selectedAdr.affectedStack && selectedAdr.affectedStack.length > 0 ? (
+                          <div className="flex flex-wrap gap-1">
+                            {selectedAdr.affectedStack.map(tech => (
+                              <span key={tech} className="px-2 py-0.5 rounded bg-indigo-50 border border-indigo-200 text-indigo-700 text-[10px] font-bold">
+                                {tech}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-zinc-400 text-[10px] italic">Ninguna especificada.</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Superseded ADR relationships */}
+                    {(selectedAdr.supersededBy || adrs.some(a => a.supersededBy === selectedAdr._id)) && (
+                      <div className="bg-amber-50/50 border border-amber-200/60 rounded p-3 text-[10px] space-y-2">
+                        <span className="font-bold text-amber-900 block">Historial de Decisiones Relacionadas:</span>
+                        <div className="space-y-1.5">
+                          {/* If this ADR superseded another */}
+                          {adrs.filter(a => a.supersededBy === selectedAdr._id).map(oldAdr => (
+                            <div key={oldAdr._id} className="flex items-center gap-1.5 text-zinc-700">
+                              <span className="bg-amber-100 text-amber-800 px-1 py-0.2 rounded font-mono font-bold">Supera a</span>
+                              <span><strong>[{oldAdr.code}]</strong> {oldAdr.title}</span>
+                            </div>
+                          ))}
+
+                          {/* If this ADR was superseded by another */}
+                          {selectedAdr.supersededBy && (() => {
+                            const newAdr = adrs.find(a => a._id === selectedAdr.supersededBy);
+                            return newAdr ? (
+                              <div className="flex items-center gap-1.5 text-zinc-700">
+                                <span className="bg-red-100 text-red-800 px-1 py-0.2 rounded font-mono font-bold">Reemplazado por</span>
+                                <span><strong>[{newAdr.code}]</strong> {newAdr.title}</span>
+                              </div>
+                            ) : null;
+                          })()}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Advisor Supervision Panel (Only for critical ADRs) */}
+                    {selectedAdr.isCriticalDecision && (
+                      <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-4 space-y-3 mt-4">
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-zinc-150 pb-2.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-red-600 animate-pulse"></span>
+                            <span className="text-[10px] font-bold font-mono text-zinc-950 uppercase tracking-wider">
+                              Supervisión de Decisión Crítica
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <span className="text-[9px] font-mono text-zinc-400">Observaciones del Docente:</span>
+                          </div>
+                        </div>
+
+                        {user?.role === 'Docente' || user?.role === 'Evaluador' || user?.role === 'Coordinador' ? (
+                          <div className="space-y-2 text-xs">
+                            <label className="block text-[9px] font-mono text-zinc-400 uppercase font-bold">Feedback / Observaciones de Tesis</label>
+                            <div className="flex gap-2">
+                              <input
+                                type="text"
+                                value={advisorComments}
+                                onChange={(e) => setAdvisorComments(e.target.value)}
+                                placeholder="Escribe observaciones para esta decisión de arquitectura crítica..."
+                                className="w-full bg-white border border-zinc-200 rounded px-3 py-1.5 focus:outline-none focus:border-black"
+                              />
+                              <button
+                                onClick={() => handleUpdateADRFields({ advisorFeedback: advisorComments })}
+                                className="bg-black text-white hover:bg-zinc-800 font-bold px-3 py-1.5 rounded uppercase tracking-wider text-[10px] shrink-0 transition-colors"
+                              >
+                                Registrar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-xs text-zinc-700 italic">
+                            <strong>Comentarios de la Supervisión:</strong> {selectedAdr.advisorFeedback ? selectedAdr.advisorFeedback : "No se han ingresado observaciones por el docente guía aún."}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -448,11 +671,11 @@ export const TechnicalSolution: React.FC = () => {
                       <span className="text-[10px] text-zinc-400 font-mono">Feedback requerido</span>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <button
                         type="button"
                         onClick={() => setReviewDecision('Approved')}
-                        className={`py-2 text-xs font-bold rounded-lg border flex flex-col items-center justify-center gap-1 transition-all ${
+                        className={`py-2 text-xs font-bold rounded-lg border flex flex-row sm:flex-col items-center justify-center gap-2 sm:gap-1 transition-all ${
                           reviewDecision === 'Approved'
                             ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-2 ring-emerald-100'
                             : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
@@ -465,7 +688,7 @@ export const TechnicalSolution: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setReviewDecision('SuggestedChanges')}
-                        className={`py-2 text-xs font-bold rounded-lg border flex flex-col items-center justify-center gap-1 transition-all ${
+                        className={`py-2 text-xs font-bold rounded-lg border flex flex-row sm:flex-col items-center justify-center gap-2 sm:gap-1 transition-all ${
                           reviewDecision === 'SuggestedChanges'
                             ? 'bg-amber-50 text-amber-850 border-amber-300 ring-2 ring-amber-100'
                             : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
@@ -478,7 +701,7 @@ export const TechnicalSolution: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setReviewDecision('Rejected')}
-                        className={`py-2 text-xs font-bold rounded-lg border flex flex-col items-center justify-center gap-1 transition-all ${
+                        className={`py-2 text-xs font-bold rounded-lg border flex flex-row sm:flex-col items-center justify-center gap-2 sm:gap-1 transition-all ${
                           reviewDecision === 'Rejected'
                             ? 'bg-red-50 text-red-800 border-red-300 ring-2 ring-red-100'
                             : 'bg-white text-zinc-600 border-zinc-200 hover:bg-zinc-50'
@@ -570,7 +793,243 @@ export const TechnicalSolution: React.FC = () => {
             </div>
           )}
         </div>
-      </div>
+        </div>
+      )}
+
+      {/* Tab 2: Timeline */}
+      {activeTab === 'timeline' && (
+        <div className="bg-white border border-zinc-200 rounded-xl p-6 shadow-sm space-y-6 text-left">
+          <h3 className="text-xs font-extrabold uppercase font-mono tracking-wider text-black">Línea de Tiempo de Evolución Arquitectónica</h3>
+          {adrs.length === 0 ? (
+            <p className="text-xs text-zinc-400 italic">No hay decisiones registradas aún.</p>
+          ) : (
+            <div className="relative border-l border-zinc-200 pl-6 ml-3 space-y-8 py-2">
+              {adrs.map((adr) => (
+                <div key={adr._id} className="relative group">
+                  {/* Timeline point */}
+                  <div className="absolute -left-[31px] top-1.5 w-4 h-4 rounded-full border-2 border-white bg-zinc-900 group-hover:bg-zinc-800 transition-colors flex items-center justify-center">
+                    <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-zinc-400 font-bold">{adr.code}</span>
+                      <span className="text-xs font-bold text-zinc-950">{adr.title}</span>
+                      {getStatusBadge(adr.status)}
+                    </div>
+                    <div className="text-xs text-zinc-600 font-sans max-w-2xl bg-zinc-50 border border-zinc-150 p-2.5 rounded">
+                      <p><strong>Contexto:</strong> {adr.context}</p>
+                      <p className="mt-1"><strong>Decisión Adoptada:</strong> {adr.decision}</p>
+                      {adr.consequences && <p className="mt-1"><strong>Consecuencias:</strong> {adr.consequences}</p>}
+                    </div>
+                    <span className="text-[9px] text-zinc-400 font-mono block">
+                      Registrado el {new Date(adr.submittedAt || (adr as any).createdAt || new Date()).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 3: Impact Matrix */}
+      {activeTab === 'impact' && (
+        <div className="space-y-6 text-left">
+          {/* Cover requirements matrix */}
+          <div className="bg-white border border-zinc-200 rounded-xl p-6 shadow-sm space-y-4">
+            <h3 className="text-xs font-extrabold uppercase font-mono tracking-wider text-black">Matriz de Trazabilidad: Requerimientos & Arquitectura</h3>
+            <p className="text-xs text-zinc-500">Visualiza qué requerimientos funcionales o no funcionales están respaldados por tus decisiones técnicas.</p>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-zinc-50 border-b border-zinc-200 font-bold font-mono text-zinc-500 text-[10px] uppercase">
+                    <th className="px-4 py-3 w-1/4">Requerimiento</th>
+                    <th className="px-4 py-3 w-2/5">Título</th>
+                    <th className="px-4 py-3 w-1/4">Estado de Cobertura</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-150">
+                  {requirements.map(req => {
+                    const coveringAdrs = adrs.filter(a => a.affectedRequirements?.includes(req.code));
+                    return (
+                      <tr key={req._id} className="hover:bg-zinc-50/50">
+                        <td className="px-4 py-3 font-mono font-bold text-zinc-900">[{req.code}]</td>
+                        <td className="px-4 py-3 text-zinc-700">{req.title}</td>
+                        <td className="px-4 py-3">
+                          {coveringAdrs.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                              {coveringAdrs.map(a => (
+                                <span key={a._id} className="px-2 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-[9px] font-bold font-mono">
+                                  {a.code}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-50 border border-red-200 text-red-700 text-[9px] font-bold">
+                              ⚠️ Huérfano (Sin Cobertura)
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {requirements.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-8 text-center text-zinc-400 italic">No hay requerimientos registrados en este proyecto.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Cover Stack component */}
+          <div className="bg-white border border-zinc-200 rounded-xl p-6 shadow-sm space-y-4">
+            <h3 className="text-xs font-extrabold uppercase font-mono tracking-wider text-black">Mapeo de Tecnologías del Stack</h3>
+            <p className="text-xs text-zinc-500">Mapea qué tecnologías están integradas formalmente en el proyecto a través de decisiones técnicas documentadas.</p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {(() => {
+                // Collect all technologies declared in ADRs
+                const techMap: Record<string, ADR[]> = {};
+                adrs.forEach(adr => {
+                  adr.affectedStack?.forEach(tech => {
+                    if (!techMap[tech]) {
+                      techMap[tech] = [];
+                    }
+                    techMap[tech].push(adr);
+                  });
+                });
+
+                const techKeys = Object.keys(techMap);
+                if (techKeys.length === 0) {
+                  return <p className="col-span-3 text-xs text-zinc-400 italic text-center py-4">No hay tecnologías del stack especificadas en las decisiones aceptadas.</p>;
+                }
+
+                return techKeys.map(tech => (
+                  <div key={tech} className="border border-zinc-200 rounded-lg p-3 bg-zinc-50 space-y-2">
+                    <span className="px-2 py-0.5 rounded bg-indigo-50 border border-indigo-200 text-indigo-700 text-[10px] font-extrabold block w-fit">
+                      {tech}
+                    </span>
+                    <div className="space-y-1">
+                      <span className="text-[8px] font-mono text-zinc-400 uppercase tracking-wider block font-bold">Definido en:</span>
+                      {techMap[tech].map(a => (
+                        <div key={a._id} className="text-[10px] font-medium text-zinc-700 flex items-center gap-1">
+                          <span className="font-mono text-zinc-400 font-bold">[{a.code}]</span>
+                          <span className="truncate">{a.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ));
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 4: Compare ADRs */}
+      {activeTab === 'compare' && (
+        <div className="bg-white border border-zinc-200 rounded-xl p-6 shadow-sm space-y-6 text-left">
+          <h3 className="text-xs font-extrabold uppercase font-mono tracking-wider text-black">Comparador Lateral de ADRs</h3>
+          <p className="text-xs text-zinc-500">Compara los objetivos, justificaciones y trade-offs de dos decisiones de arquitectura distintas.</p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[9px] font-mono text-zinc-400 uppercase font-bold mb-1">Decisión A</label>
+              <select
+                value={selectedCompareAdrAId}
+                onChange={e => setSelectedCompareAdrAId(e.target.value)}
+                className="w-full bg-white border border-zinc-200 rounded px-2.5 py-1.5 text-xs text-black cursor-pointer font-semibold"
+              >
+                <option value="">-- Seleccionar ADR A --</option>
+                {adrs.map(a => (
+                  <option key={a._id} value={a._id}>[{a.code}] {a.title}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[9px] font-mono text-zinc-400 uppercase font-bold mb-1">Decisión B</label>
+              <select
+                value={selectedCompareAdrBId}
+                onChange={e => setSelectedCompareAdrBId(e.target.value)}
+                className="w-full bg-white border border-zinc-200 rounded px-2.5 py-1.5 text-xs text-black cursor-pointer font-semibold"
+              >
+                <option value="">-- Seleccionar ADR B --</option>
+                {adrs.map(a => (
+                  <option key={a._id} value={a._id}>[{a.code}] {a.title}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {selectedCompareAdrAId && selectedCompareAdrBId ? (() => {
+            const adrA = adrs.find(a => a._id === selectedCompareAdrAId);
+            const adrB = adrs.find(a => a._id === selectedCompareAdrBId);
+            if (!adrA || !adrB) return null;
+
+            return (
+              <div className="border border-zinc-200 rounded-lg overflow-x-auto mt-4 text-xs">
+                <table className="w-full border-collapse text-left">
+                  <thead>
+                    <tr className="bg-zinc-50 border-b border-zinc-200 font-bold font-mono text-zinc-500 text-[10px] uppercase">
+                      <th className="px-4 py-3 w-1/5">Criterio</th>
+                      <th className="px-4 py-3 w-2/5">[{adrA.code}] {adrA.title}</th>
+                      <th className="px-4 py-3 w-2/5">[{adrB.code}] {adrB.title}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-150">
+                    <tr>
+                      <td className="px-4 py-3 font-semibold bg-zinc-50/50">Estado</td>
+                      <td className="px-4 py-3">{getStatusBadge(adrA.status)}</td>
+                      <td className="px-4 py-3">{getStatusBadge(adrB.status)}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 font-semibold bg-zinc-50/50">Contexto</td>
+                      <td className="px-4 py-3 leading-relaxed whitespace-pre-wrap">{adrA.context}</td>
+                      <td className="px-4 py-3 leading-relaxed whitespace-pre-wrap">{adrB.context}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 font-semibold bg-zinc-50/50">Decisión</td>
+                      <td className="px-4 py-3 leading-relaxed whitespace-pre-wrap">{adrA.decision}</td>
+                      <td className="px-4 py-3 leading-relaxed whitespace-pre-wrap">{adrB.decision}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 font-semibold bg-zinc-50/50">Consecuencias</td>
+                      <td className="px-4 py-3 leading-relaxed whitespace-pre-wrap">{adrA.consequences}</td>
+                      <td className="px-4 py-3 leading-relaxed whitespace-pre-wrap">{adrB.consequences}</td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 font-semibold bg-zinc-50/50">Req. Afectados</td>
+                      <td className="px-4 py-3 font-mono font-bold text-zinc-800">
+                        {adrA.affectedRequirements?.join(', ') || 'Ninguno'}
+                      </td>
+                      <td className="px-4 py-3 font-mono font-bold text-zinc-800">
+                        {adrB.affectedRequirements?.join(', ') || 'Ninguno'}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="px-4 py-3 font-semibold bg-zinc-50/50">Stack Tecnológico</td>
+                      <td className="px-4 py-3 font-semibold text-indigo-750">
+                        {adrA.affectedStack?.join(', ') || 'Ninguno'}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-indigo-750">
+                        {adrB.affectedStack?.join(', ') || 'Ninguno'}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            );
+          })() : (
+            <p className="text-xs text-zinc-400 italic text-center py-8 bg-zinc-50/50 rounded-lg border border-dashed border-zinc-200">
+              Selecciona ambas decisiones para iniciar la comparación.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Add / Edit ADR Modal */}
       {showModal && (
@@ -635,6 +1094,76 @@ export const TechnicalSolution: React.FC = () => {
                   placeholder="Efectos secundarios de la decisión (positivos, negativos, compromisos)..."
                   className="w-full bg-white border border-zinc-250 rounded px-3 py-1.5 text-sm text-black focus:outline-none focus:border-black placeholder-zinc-300 h-20 resize-none font-sans"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono text-zinc-400 uppercase mb-1 font-bold text-black">Requerimientos Afectados</label>
+                <div className="border border-zinc-200 rounded p-2 max-h-24 overflow-y-auto space-y-1 bg-zinc-50">
+                  {requirements.map(req => (
+                    <label key={req._id} className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={formAffectedReqs.includes(req.code)}
+                        onChange={e => {
+                          if (e.target.checked) {
+                            setFormAffectedReqs([...formAffectedReqs, req.code]);
+                          } else {
+                            setFormAffectedReqs(formAffectedReqs.filter(r => r !== req.code));
+                          }
+                        }}
+                        className="rounded text-zinc-900 focus:ring-zinc-900"
+                      />
+                      <span><strong>[{req.code}]</strong> {req.title}</span>
+                    </label>
+                  ))}
+                  {requirements.length === 0 && (
+                    <p className="text-zinc-450 italic text-[10px]">No hay requerimientos en este proyecto.</p>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono text-zinc-400 uppercase mb-1 font-bold text-black">Stack Tecnológico Afectado</label>
+                <input
+                  type="text"
+                  value={formAffectedTechs.join(', ')}
+                  onChange={e => {
+                    setFormAffectedTechs(e.target.value.split(',').map(s => s.trim()).filter(Boolean));
+                  }}
+                  placeholder="Ej: React, FastAPI, PostgreSQL"
+                  className="w-full bg-white border border-zinc-200 rounded px-3 py-1.5 text-sm text-black focus:outline-none focus:border-black placeholder-zinc-300"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 py-1">
+                <input
+                  type="checkbox"
+                  id="isCriticalCheckbox"
+                  checked={isCritical}
+                  onChange={e => setIsCritical(e.target.checked)}
+                  className="rounded text-zinc-900 focus:ring-zinc-900 w-4 h-4 cursor-pointer"
+                />
+                <label htmlFor="isCriticalCheckbox" className="text-xs font-bold text-zinc-700 cursor-pointer select-none">
+                  ⚠️ Decisión Crítica de Arquitectura (Riesgo Alto / Impacto Crítico)
+                </label>
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono text-zinc-400 uppercase mb-1 font-bold text-black">¿Supera / Reemplaza una Decisión Previa?</label>
+                <select
+                  value={formSupersededAdrId}
+                  onChange={e => setFormSupersededAdrId(e.target.value)}
+                  className="w-full bg-white border border-zinc-200 rounded px-3 py-1.5 text-sm text-black focus:outline-none focus:border-black cursor-pointer"
+                >
+                  <option value="">-- Ninguna --</option>
+                  {adrs
+                    .filter(adr => adr._id !== (selectedAdr?._id || ''))
+                    .map(adr => (
+                      <option key={adr._id} value={adr._id}>
+                        [{adr.code}] {adr.title}
+                      </option>
+                    ))}
+                </select>
               </div>
 
               <div className="flex gap-2 justify-end pt-2 border-t border-zinc-200">

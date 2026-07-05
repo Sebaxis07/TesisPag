@@ -4,12 +4,14 @@ import { useAuthStore } from '../store/AuthStore';
 import { validateRut, normalizeRut } from '../utils/rutHelper';
 
 export const Login: React.FC = () => {
-  const [isRegister, setIsRegister] = useState(false);
+  type ViewState = 'login' | 'register' | 'activate';
+  const [view, setView] = useState<ViewState>('login');
   const [name, setName] = useState('');
   const [rut, setRut] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordConfirm, setPasswordConfirm] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
-  const { login, register, isAuthenticated, error, isLoading } = useAuthStore();
+  const { login, register, activate, isAuthenticated, error, isLoading } = useAuthStore();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -29,9 +31,17 @@ export const Login: React.FC = () => {
 
     const normalizedRut = normalizeRut(rut);
 
-    if (isRegister) {
+    if (view === 'register') {
       if (!name || !normalizedRut || !password) return;
       const success = await register(name, normalizedRut, password);
+      if (success) navigate('/');
+    } else if (view === 'activate') {
+      if (!normalizedRut || !password || !passwordConfirm) return;
+      if (password !== passwordConfirm) {
+        setValidationError('Las contraseñas nuevas no coinciden.');
+        return;
+      }
+      const success = await activate(normalizedRut, password);
       if (success) navigate('/');
     } else {
       if (!normalizedRut || !password) return;
@@ -47,12 +57,14 @@ export const Login: React.FC = () => {
         <div className="text-center mb-8">
           <img src="/icon/icon.png" className="w-12 h-12 object-contain mx-auto mb-3" alt="ThesisFlow Logo" />
           <h2 className="text-2xl font-extrabold text-black tracking-tight">
-            {isRegister ? 'Crear una cuenta' : 'Ingresar a ThesisFlow'}
+            {view === 'register' && 'Crear una cuenta'}
+            {view === 'activate' && 'Activar tu cuenta'}
+            {view === 'login' && 'Ingresar a ThesisFlow'}
           </h2>
           <p className="text-sm text-zinc-500 mt-1">
-            {isRegister 
-              ? 'Regístrate para comenzar a gestionar tu proyecto de título' 
-              : 'Introduce tus credenciales para acceder a tu proyecto'}
+            {view === 'register' && 'Regístrate para comenzar a gestionar tu proyecto de título'}
+            {view === 'activate' && 'Establece tu contraseña para activar tu cuenta pre-registrada'}
+            {view === 'login' && 'Introduce tus credenciales para acceder a tu proyecto'}
           </p>
         </div>
 
@@ -64,7 +76,7 @@ export const Login: React.FC = () => {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {isRegister && (
+          {view === 'register' && (
             <div>
               <label className="block text-xs font-mono text-zinc-400 uppercase mb-1.5">Nombre Completo</label>
               <input
@@ -91,7 +103,9 @@ export const Login: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-mono text-zinc-400 uppercase mb-1.5">Contraseña</label>
+            <label className="block text-xs font-mono text-zinc-400 uppercase mb-1.5">
+              {view === 'activate' ? 'Nueva Contraseña' : 'Contraseña'}
+            </label>
             <input
               type="password"
               required
@@ -102,27 +116,80 @@ export const Login: React.FC = () => {
             />
           </div>
 
+          {view === 'activate' && (
+            <div>
+              <label className="block text-xs font-mono text-zinc-400 uppercase mb-1.5">Confirmar Nueva Contraseña</label>
+              <input
+                type="password"
+                required
+                value={passwordConfirm}
+                onChange={e => setPasswordConfirm(e.target.value)}
+                placeholder="••••••••"
+                className="w-full bg-white border border-zinc-200 rounded px-3 py-2 text-sm text-black focus:outline-none focus:border-black placeholder-zinc-300"
+              />
+            </div>
+          )}
+
           <button
             type="submit"
             disabled={isLoading}
             className="w-full bg-black text-white hover:bg-zinc-800 text-sm font-semibold py-2.5 rounded transition-colors disabled:opacity-50 mt-2"
           >
-            {isLoading ? 'Cargando...' : isRegister ? 'Registrarse' : 'Iniciar Sesión'}
+            {isLoading ? 'Cargando...' : view === 'register' ? 'Registrarse' : view === 'activate' ? 'Activar Cuenta' : 'Iniciar Sesión'}
           </button>
         </form>
 
-        <div className="mt-8 pt-6 border-t border-zinc-100 text-center">
-          <button
-            type="button"
-            onClick={() => {
-              setIsRegister(!isRegister);
-            }}
-            className="text-xs font-medium text-zinc-500 hover:text-black transition-colors"
-          >
-            {isRegister 
-              ? '¿Ya tienes una cuenta? Inicia sesión' 
-              : '¿No tienes cuenta? Registrate aquí'}
-          </button>
+        <div className="mt-8 pt-6 border-t border-zinc-100 flex flex-col gap-3 items-center">
+          {view === 'login' && (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setView('activate');
+                  setValidationError(null);
+                }}
+                className="text-xs font-semibold text-black hover:underline transition-colors"
+              >
+                ¿Primer ingreso? Activa tu cuenta aquí
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setView('register');
+                  setValidationError(null);
+                }}
+                className="text-xs font-medium text-zinc-500 hover:text-black transition-colors"
+              >
+                ¿No tienes cuenta? Regístrate aquí
+              </button>
+            </>
+          )}
+
+          {view === 'register' && (
+            <button
+              type="button"
+              onClick={() => {
+                setView('login');
+                setValidationError(null);
+              }}
+              className="text-xs font-medium text-zinc-500 hover:text-black transition-colors"
+            >
+              ¿Ya tienes una cuenta? Inicia sesión
+            </button>
+          )}
+
+          {view === 'activate' && (
+            <button
+              type="button"
+              onClick={() => {
+                setView('login');
+                setValidationError(null);
+              }}
+              className="text-xs font-medium text-zinc-500 hover:text-black transition-colors"
+            >
+              Volver al inicio de sesión
+            </button>
+          )}
         </div>
       </div>
       

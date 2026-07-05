@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.downloadVersion = exports.getProjectDeliverables = exports.freezeDeliverable = exports.uploadVersion = exports.createDeliverable = void 0;
+exports.approveDeliverableVersion = exports.downloadVersion = exports.getProjectDeliverables = exports.freezeDeliverable = exports.uploadVersion = exports.createDeliverable = void 0;
 const models_1 = require("../models");
 const auditLogger_1 = require("../utils/auditLogger");
 const fs_1 = __importDefault(require("fs"));
@@ -170,3 +170,44 @@ const downloadVersion = async (req, res) => {
     }
 };
 exports.downloadVersion = downloadVersion;
+// 6. Approve or request changes for a specific version of a deliverable
+const approveDeliverableVersion = async (req, res) => {
+    try {
+        const { id, versionNumber } = req.params;
+        const { advisorApprovalStatus, advisorApprovalFeedback = '' } = req.body;
+        if (!advisorApprovalStatus || !['Approved', 'ChangesRequested'].includes(advisorApprovalStatus)) {
+            return res.status(400).json({ message: 'El estado de aprobación debe ser "Approved" o "ChangesRequested".' });
+        }
+        const deliverable = await models_1.Deliverable.findById(id);
+        if (!deliverable) {
+            return res.status(404).json({ message: 'Entregable no encontrado.' });
+        }
+        // Check user role
+        const hasPermission = ['Docente', 'Evaluador', 'Coordinador'].includes(req.user.role);
+        if (!hasPermission) {
+            return res.status(430).json({ message: 'Solo los supervisores académicos (Docentes, Evaluadores o Coordinación) pueden realizar esta revisión.' });
+        }
+        const verNum = parseInt(versionNumber, 10);
+        const versionIndex = deliverable.versions.findIndex(v => v.versionNumber === verNum);
+        if (versionIndex === -1) {
+            return res.status(404).json({ message: 'Versión del entregable no encontrada.' });
+        }
+        // Update version approval fields
+        deliverable.versions[versionIndex].advisorApprovalStatus = advisorApprovalStatus;
+        deliverable.versions[versionIndex].advisorApprovalFeedback = advisorApprovalFeedback;
+        // Update overall deliverable status as well
+        if (advisorApprovalStatus === 'Approved') {
+            deliverable.status = 'Approved';
+        }
+        else if (advisorApprovalStatus === 'ChangesRequested') {
+            deliverable.status = 'ChangesRequested';
+        }
+        await deliverable.save();
+        await (0, auditLogger_1.logAudit)(req, deliverable.project.toString(), 'APPROVE_DELIVERABLE_VERSION', 'Deliverable', deliverable._id.toString(), `Revisión registrada por ${req.user.name} para V${verNum} con veredicto: ${advisorApprovalStatus}`);
+        return res.json(deliverable);
+    }
+    catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+exports.approveDeliverableVersion = approveDeliverableVersion;

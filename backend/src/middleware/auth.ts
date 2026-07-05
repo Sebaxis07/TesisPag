@@ -49,11 +49,44 @@ export const authorize = (...roles: string[]) => {
   };
 };
 
+export const authorizeCreator = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ message: 'Not authorized' });
+    }
+    const user = await User.findById(req.user._id);
+    if (!user || user.role !== 'Creador') {
+      return res.status(403).json({ message: 'Solo el Creador tiene permisos para realizar esta acción.' });
+    }
+    next();
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: 'Error de servidor al autorizar al Creador.' });
+  }
+};
+
 export const checkProjectPermission = (requiredRoles: Array<'Admin' | 'Editor' | 'Viewer'>) => {
   return async (req: ProjectAuthRequest, res: Response, next: NextFunction) => {
     try {
       // Find project context
-      const projectId = req.params.projectId || req.body.projectId || req.query.projectId || req.body.project;
+      let projectId = req.params.projectId || req.body.projectId || req.query.projectId || req.body.project;
+      if (!projectId && req.params.id) {
+        const fullPath = ((req.baseUrl || '') + (req.path || '')).toLowerCase();
+        if (fullPath.includes('deliverables')) {
+          const { Deliverable } = require('../models');
+          const deliverable = await Deliverable.findById(req.params.id);
+          if (deliverable) {
+            projectId = deliverable.project.toString();
+          }
+        } else if (fullPath.includes('approvals')) {
+          const { Approval } = require('../models');
+          const approval = await Approval.findById(req.params.id);
+          if (approval) {
+            projectId = approval.project.toString();
+          }
+        }
+      }
+
       if (!projectId) {
         return res.status(400).json({ message: 'Project context (projectId) is required for this action.' });
       }
@@ -62,8 +95,8 @@ export const checkProjectPermission = (requiredRoles: Array<'Admin' | 'Editor' |
         return res.status(401).json({ message: 'Not authenticated' });
       }
 
-      // If user is a system Admin, grand access
-      if (req.user.role === 'Admin') {
+      // If user is a system supervisor (Admin, Docente, Coordinador), grant access
+      if (['Admin', 'Docente', 'Coordinador'].includes(req.user.role)) {
         req.projectRole = 'Admin';
         return next();
       }

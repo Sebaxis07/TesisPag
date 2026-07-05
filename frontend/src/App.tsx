@@ -12,7 +12,6 @@ import { Requirements } from './pages/Requirements';
 import { TechnicalSolution } from './pages/TechnicalSolution';
 import { Diagrams } from './pages/Diagrams';
 import { Reports } from './pages/Reports';
-import { KnowledgeBase } from './pages/KnowledgeBase';
 import { StackComparer } from './pages/StackComparer';
 import { AuditLogs } from './pages/AuditLogs';
 import { AcceptInvite } from './pages/AcceptInvite';
@@ -21,6 +20,10 @@ import { Approvals } from './pages/Approvals';
 import { Roadmap } from './pages/Roadmap';
 import { Deliverables } from './pages/Deliverables';
 import { PresentationAssistant } from './pages/PresentationAssistant';
+import { UserManagement } from './pages/UserManagement';
+import { ProposalManagement } from './pages/ProposalManagement';
+import { EvaluationRubricPanel } from './pages/EvaluationRubricPanel';
+import { Profile } from './pages/Profile';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAuthStore();
@@ -77,14 +80,17 @@ export const App: React.FC = () => {
           <Route path="arquitectura" element={<TechnicalSolution />} />
           <Route path="diagramas" element={<Diagrams />} />
           <Route path="informes" element={<Reports />} />
-          <Route path="knowledge-base" element={<KnowledgeBase />} />
           <Route path="stack-comparer" element={<StackComparer />} />
           <Route path="audit-logs" element={<AuditLogs />} />
           <Route path="observaciones" element={<Observations />} />
           <Route path="aprobaciones" element={<Approvals />} />
+          <Route path="propuestas" element={<ProposalManagement />} />
+          <Route path="evaluaciones" element={<EvaluationRubricPanel />} />
           <Route path="roadmap" element={<Roadmap />} />
           <Route path="entregables" element={<Deliverables />} />
           <Route path="defensa" element={<PresentationAssistant />} />
+          <Route path="usuarios" element={<UserManagement />} />
+          <Route path="perfil" element={<Profile />} />
         </Route>
 
         {/* Catch-all Fallback redirection */}

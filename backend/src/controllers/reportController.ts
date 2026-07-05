@@ -2,12 +2,14 @@ import { Response } from 'express';
 import { Document, Project, SourceDocument } from '../models';
 import { ProjectAuthRequest, getProjectRole } from '../middleware/auth';
 import { logAudit } from '../utils/auditLogger';
+import PDFDocument from 'pdfkit';
+import { Document as DocxDoc, Paragraph, TextRun, Packer, AlignmentType } from 'docx';
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 
 export const createDocument = async (req: ProjectAuthRequest, res: Response) => {
   try {
-    const { project, title, templateType, content, status } = req.body;
+    const { project, title, templateType, content, status, level, parentSection, order, assignedTo } = req.body;
 
     if (!project || !title) {
       return res.status(400).json({ message: 'Project and title are required' });
@@ -25,7 +27,11 @@ export const createDocument = async (req: ProjectAuthRequest, res: Response) => 
       title,
       templateType: templateType || 'Personalizada',
       content: content || '',
-      status: status || 'Draft'
+      status: status || 'Draft',
+      level: level || 1,
+      parentSection: parentSection || null,
+      order: order || 0,
+      assignedTo: assignedTo || null
     });
 
     await logAudit(req, project, 'CREATE_DOCUMENT', 'Document', doc._id.toString(), `Title: ${title}`);
@@ -44,7 +50,8 @@ export const getDocumentsByProject = async (req: ProjectAuthRequest, res: Respon
       return res.status(403).json({ message: 'Access denied. You are not a member of this project.' });
     }
 
-    const docs = await Document.find({ project: projectId }).sort({ createdAt: -1 });
+    // Sort by level and order to maintain the tree hierarchy sequence
+    const docs = await Document.find({ project: projectId }).sort({ level: 1, order: 1, createdAt: 1 });
     return res.json(docs);
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
@@ -83,6 +90,11 @@ export const updateDocument = async (req: ProjectAuthRequest, res: Response) => 
 
     if (!isAdmin && !isEditor && !isOwner) {
       return res.status(403).json({ message: 'No tienes permisos para editar este documento.' });
+    }
+
+    // LOCK CHECK: If document is Approved or Frozen, block edits to content.
+    if ((doc.status === 'Approved' || doc.status === 'Frozen') && req.body.content !== undefined && req.body.content !== doc.content) {
+      return res.status(403).json({ message: 'Este documento está aprobado o congelado y no se puede modificar. Crea una nueva versión para realizar cambios.' });
     }
 
     Object.assign(doc, req.body);
@@ -154,6 +166,11 @@ export const generateReportSectionAI = async (req: ProjectAuthRequest, res: Resp
       return res.status(403).json({ message: 'No tienes permisos para ejecutar la generación de este documento.' });
     }
 
+    // LOCK CHECK
+    if (doc.status === 'Approved' || doc.status === 'Frozen') {
+      return res.status(403).json({ message: 'Este documento está aprobado o congelado y no se puede modificar.' });
+    }
+
     const project = await Project.findById(doc.project);
     const projectContext = project ? {
       name: project.name,
@@ -186,7 +203,6 @@ export const generateReportSectionAI = async (req: ProjectAuthRequest, res: Resp
               citations.push(d.filename);
             }
             d.chunks.forEach(chunk => {
-              // Rough match check to prevent pushing irrelevant chunks
               contextParts.push(`[Origen: ${d.filename}, Fragmento: ${chunk.index}] ${chunk.text}`);
             });
           });
@@ -262,6 +278,11 @@ export const autocompleteReportSectionAI = async (req: ProjectAuthRequest, res: 
 
     if (!isAdmin && !isEditor && !isOwner) {
       return res.status(403).json({ message: 'No tienes permisos para ejecutar el autocompletado en este documento.' });
+    }
+
+    // LOCK CHECK
+    if (doc.status === 'Approved' || doc.status === 'Frozen') {
+      return res.status(403).json({ message: 'Este documento está aprobado o congelado y no se puede modificar.' });
     }
 
     const project = await Project.findById(doc.project);
@@ -345,7 +366,6 @@ export const getInlineSuggestionAI = async (req: ProjectAuthRequest, res: Respon
       companyName: project.companyName
     } : {};
 
-    // Only send the last 1000 characters to keep LLM context fast and cost-effective
     const truncatedText = (currentContent || '').slice(-1000);
 
     let suggestion = '';
@@ -375,6 +395,446 @@ export const getInlineSuggestionAI = async (req: ProjectAuthRequest, res: Respon
     }
 
     return res.json({ suggestion });
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// ----------------------------------------------------
+// NEW ENDPOINTS FOR ADVANCED ACADEMIC WORKSPACE
+// ----------------------------------------------------
+
+export const commitDocumentVersion = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { commitMessage } = req.body;
+
+    const doc = await Document.findById(id);
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const role = await getProjectRole(req.user._id, doc.project.toString());
+    const isOwner = doc.owner && doc.owner.toString() === req.user._id.toString();
+    const isAdmin = role === 'Admin' || req.user.role === 'Admin';
+    const isEditor = role === 'Editor';
+
+    if (!isAdmin && !isEditor && !isOwner) {
+      return res.status(403).json({ message: 'No tienes permisos para realizar commits.' });
+    }
+
+    const nextVerNum = (doc.versions?.length || 0) + 1;
+    doc.versions.push({
+      versionNumber: nextVerNum,
+      content: doc.content,
+      commitMessage: commitMessage || `Checkpoint de versión ${nextVerNum}`,
+      updatedBy: req.user._id,
+      createdAt: new Date()
+    });
+
+    // Unfreeze on new version commit so it becomes editable as Draft again
+    if (doc.status === 'Approved' || doc.status === 'Frozen') {
+      doc.status = 'Draft';
+    }
+
+    await doc.save();
+    await logAudit(req, doc.project.toString(), 'COMMIT_DOCUMENT_VERSION', 'Document', doc._id.toString(), `Version: ${nextVerNum}, Msg: ${commitMessage}`);
+
+    return res.json(doc);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const bindParagraphEvidence = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { paragraphId, sourceType, sourceId, matchedText, confidence } = req.body;
+
+    if (!paragraphId || !sourceType || !sourceId) {
+      return res.status(400).json({ message: 'Missing required parameters' });
+    }
+
+    const doc = await Document.findById(id);
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    if (doc.status === 'Approved' || doc.status === 'Frozen') {
+      return res.status(403).json({ message: 'El documento está bloqueado y no se le puede asociar evidencia.' });
+    }
+
+    const role = await getProjectRole(req.user._id, doc.project.toString());
+    const isOwner = doc.owner && doc.owner.toString() === req.user._id.toString();
+    const isAdmin = role === 'Admin' || req.user.role === 'Admin';
+    const isEditor = role === 'Editor';
+
+    if (!isAdmin && !isEditor && !isOwner) {
+      return res.status(403).json({ message: 'No tienes permisos para modificar este documento.' });
+    }
+
+    const existingIndex = doc.evidence.findIndex(
+      e => e.paragraphId === paragraphId && e.sourceId.toString() === sourceId.toString()
+    );
+
+    if (existingIndex > -1) {
+      doc.evidence[existingIndex].matchedText = matchedText || '';
+      doc.evidence[existingIndex].confidence = confidence || 1.0;
+    } else {
+      doc.evidence.push({
+        paragraphId,
+        sourceType,
+        sourceId,
+        matchedText: matchedText || '',
+        confidence: confidence || 1.0
+      });
+    }
+
+    await doc.save();
+    return res.json(doc);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const citeSource = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { sourceType, sourceId, bibtexData, citationString, citationKey } = req.body;
+
+    if (!sourceType || !citationString) {
+      return res.status(400).json({ message: 'sourceType and citationString are required' });
+    }
+
+    const doc = await Document.findById(id);
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    if (doc.status === 'Approved' || doc.status === 'Frozen') {
+      return res.status(403).json({ message: 'El documento está bloqueado y no se le pueden agregar citas.' });
+    }
+
+    const role = await getProjectRole(req.user._id, doc.project.toString());
+    const isOwner = doc.owner && doc.owner.toString() === req.user._id.toString();
+    const isAdmin = role === 'Admin' || req.user.role === 'Admin';
+    const isEditor = role === 'Editor';
+
+    if (!isAdmin && !isEditor && !isOwner) {
+      return res.status(403).json({ message: 'No tienes permisos para modificar este documento.' });
+    }
+
+    const key = citationKey || `[APA-${(doc.citations?.length || 0) + 1}]`;
+
+    doc.citations.push({
+      citationKey: key,
+      sourceType,
+      sourceId: sourceId || undefined,
+      bibtexData: bibtexData || '',
+      citationString
+    });
+
+    await doc.save();
+    return res.json(doc);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const exportDocumentPDF = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const doc = await Document.findById(req.params.id);
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const pdf = new PDFDocument({ margin: 50 });
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${doc.title.replace(/\s+/g, '_')}.pdf"`);
+    pdf.pipe(res);
+
+    // Title Page / Header
+    pdf.fontSize(24).font('Helvetica-Bold').text(doc.title, { align: 'center' });
+    pdf.moveDown();
+    pdf.fontSize(10).font('Helvetica-Oblique').text(`Documento Académico - ThesisFlow`, { align: 'center' });
+    pdf.text(`Tipo de Plantilla: ${doc.templateType}`, { align: 'center' });
+    pdf.text(`Estado: ${doc.status} | Versión: ${doc.versions?.length || 1}`, { align: 'center' });
+    pdf.moveDown(2);
+
+    // Parse Markdown roughly
+    const lines = doc.content.split('\n');
+    lines.forEach(line => {
+      if (line.startsWith('# ')) {
+        pdf.moveDown();
+        pdf.fontSize(18).font('Helvetica-Bold').text(line.replace('# ', ''));
+        pdf.moveDown(0.5);
+      } else if (line.startsWith('## ')) {
+        pdf.moveDown();
+        pdf.fontSize(14).font('Helvetica-Bold').text(line.replace('## ', ''));
+        pdf.moveDown(0.5);
+      } else if (line.startsWith('### ')) {
+        pdf.moveDown();
+        pdf.fontSize(12).font('Helvetica-Bold').text(line.replace('### ', ''));
+        pdf.moveDown(0.5);
+      } else if (line.startsWith('- ') || line.startsWith('* ')) {
+        pdf.fontSize(11).font('Helvetica').text(`  • ${line.substring(2)}`);
+      } else if (line.trim()) {
+        pdf.fontSize(11).font('Helvetica').text(line, { align: 'justify', paragraphGap: 8 });
+      } else {
+        pdf.moveDown(0.2);
+      }
+    });
+
+    // Add APA 7 Citations if present
+    if (doc.citations && doc.citations.length > 0) {
+      pdf.addPage();
+      pdf.fontSize(16).font('Helvetica-Bold').text('Referencias (APA 7)', { align: 'left' });
+      pdf.moveDown();
+      doc.citations.forEach(c => {
+        pdf.fontSize(10).font('Helvetica').text(`${c.citationKey} ${c.citationString}`, { paragraphGap: 6 });
+      });
+    }
+
+    pdf.end();
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const exportDocumentDOCX = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const doc = await Document.findById(req.params.id);
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const paragraphs: Paragraph[] = [];
+
+    // Title
+    paragraphs.push(new Paragraph({
+      children: [
+        new TextRun({ text: doc.title, bold: true, size: 32 })
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 200 }
+    }));
+
+    // Subtitle info
+    paragraphs.push(new Paragraph({
+      children: [
+        new TextRun({ text: `Tipo de Plantilla: ${doc.templateType} | Estado: ${doc.status}\n\n`, italics: true, size: 20 })
+      ],
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 400 }
+    }));
+
+    // Content
+    const lines = doc.content.split('\n');
+    lines.forEach(line => {
+      if (line.startsWith('# ')) {
+        paragraphs.push(new Paragraph({
+          children: [
+            new TextRun({ text: line.replace('# ', ''), bold: true, size: 28 })
+          ],
+          spacing: { before: 200, after: 100 }
+        }));
+      } else if (line.startsWith('## ')) {
+        paragraphs.push(new Paragraph({
+          children: [
+            new TextRun({ text: line.replace('## ', ''), bold: true, size: 24 })
+          ],
+          spacing: { before: 180, after: 80 }
+        }));
+      } else if (line.startsWith('### ')) {
+        paragraphs.push(new Paragraph({
+          children: [
+            new TextRun({ text: line.replace('### ', ''), bold: true, size: 20 })
+          ],
+          spacing: { before: 140, after: 60 }
+        }));
+      } else if (line.startsWith('- ') || line.startsWith('* ')) {
+        paragraphs.push(new Paragraph({
+          children: [
+            new TextRun({ text: `• ${line.substring(2)}`, size: 22 })
+          ],
+          spacing: { after: 100 }
+        }));
+      } else if (line.trim()) {
+        paragraphs.push(new Paragraph({
+          children: [
+            new TextRun({ text: line, size: 22 })
+          ],
+          spacing: { after: 160 }
+        }));
+      }
+    });
+
+    // Citations
+    if (doc.citations && doc.citations.length > 0) {
+      paragraphs.push(new Paragraph({
+        children: [
+          new TextRun({ text: 'Referencias (APA 7)', bold: true, size: 24 })
+        ],
+        spacing: { before: 300, after: 150 }
+      }));
+
+      doc.citations.forEach(c => {
+        paragraphs.push(new Paragraph({
+          children: [
+            new TextRun({ text: `${c.citationKey} ${c.citationString}`, size: 20 })
+          ],
+          spacing: { after: 100 }
+        }));
+      });
+    }
+
+    const docxFile = new DocxDoc({
+      sections: [{
+        properties: {},
+        children: paragraphs
+      }]
+    });
+
+    const buffer = await Packer.toBuffer(docxFile);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="${doc.title.replace(/\s+/g, '_')}.docx"`);
+    return res.send(buffer);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const checkReportConsistency = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const doc = await Document.findById(id);
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const project = await Project.findById(doc.project);
+    const projectContext = project ? {
+      name: project.name,
+      description: project.description,
+      problem: project.problem,
+      objectives: project.objectives,
+      restrictions: project.restrictions,
+      methodology: project.methodology,
+      companyName: project.companyName
+    } : {};
+
+    const response = await fetch(`${AI_SERVICE_URL}/ai/check-consistency`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        content: doc.content || '',
+        section_title: doc.title,
+        template_type: doc.templateType,
+        project_context: projectContext
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`AI Service returned code ${response.status}`);
+    }
+
+    const aiResult = await response.json();
+    return res.json(aiResult);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const critiqueReportSection = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const doc = await Document.findById(id);
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const project = await Project.findById(doc.project);
+    const projectContext = project ? {
+      name: project.name,
+      description: project.description,
+      problem: project.problem,
+      objectives: project.objectives,
+      restrictions: project.restrictions,
+      methodology: project.methodology,
+      companyName: project.companyName
+    } : {};
+
+    const response = await fetch(`${AI_SERVICE_URL}/ai/critique-section`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        content: doc.content || '',
+        section_title: doc.title,
+        template_type: doc.templateType,
+        project_context: projectContext
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`AI Service returned code ${response.status}`);
+    }
+
+    const aiResult = await response.json();
+    return res.json(aiResult);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const evaluateReportRubric = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { rubricText } = req.body;
+
+    if (!rubricText || rubricText.trim().length === 0) {
+      return res.status(400).json({ message: 'El texto de la rúbrica es requerido para evaluar.' });
+    }
+
+    const doc = await Document.findById(id);
+    if (!doc) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const project = await Project.findById(doc.project);
+    const projectContext = project ? {
+      name: project.name,
+      description: project.description,
+      problem: project.problem,
+      objectives: project.objectives,
+      restrictions: project.restrictions,
+      methodology: project.methodology,
+      companyName: project.companyName
+    } : {};
+
+    const response = await fetch(`${AI_SERVICE_URL}/ai/check-rubric`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        content: doc.content || '',
+        section_title: doc.title,
+        rubric_text: rubricText,
+        project_context: projectContext
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`AI Service returned code ${response.status}`);
+    }
+
+    const aiResult = await response.json();
+    return res.json(aiResult);
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }

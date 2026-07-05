@@ -1,7 +1,42 @@
 import { Response } from 'express';
-import { TraceLink } from '../models';
+import { TraceLink, Requirement } from '../models';
 import { ProjectAuthRequest, getProjectRole } from '../middleware/auth';
 import { logAudit } from '../utils/auditLogger';
+import { recalculateRequirementStatus } from '../utils/requirementStatusHelper';
+
+async function syncRequirementLinks(
+  projectId: string,
+  reqId: string,
+  itemType: string,
+  itemId: string,
+  action: 'add' | 'remove'
+) {
+  try {
+    const reqDoc = await Requirement.findById(reqId);
+    if (!reqDoc) return;
+
+    let field: 'linkedTasks' | 'linkedMeetings' | 'linkedADRs' | 'linkedDeliverables' = 'linkedTasks';
+    if (itemType === 'Task') field = 'linkedTasks';
+    else if (itemType === 'Meeting') field = 'linkedMeetings';
+    else if (itemType === 'ADRDecision') field = 'linkedADRs';
+    else if (itemType === 'Deliverable' || itemType === 'Document') field = 'linkedDeliverables';
+    else return;
+
+    const itemIdStr = itemId.toString();
+    if (action === 'add') {
+      const alreadyHas = reqDoc[field].some((id: any) => id.toString() === itemIdStr);
+      if (!alreadyHas) {
+        reqDoc[field].push(itemId as any);
+        await reqDoc.save();
+      }
+    } else {
+      reqDoc[field] = reqDoc[field].filter((id: any) => id.toString() !== itemIdStr);
+      await reqDoc.save();
+    }
+  } catch (err) {
+    console.error('Error syncing requirement link:', err);
+  }
+}
 
 export const createTraceLink = async (req: ProjectAuthRequest, res: Response) => {
   try {
@@ -38,6 +73,15 @@ export const createTraceLink = async (req: ProjectAuthRequest, res: Response) =>
       createdBy: req.user._id
     });
 
+    // Sync requirement direct fields
+    if (sourceType === 'Requirement') {
+      await syncRequirementLinks(project, sourceId, targetType, targetId, 'add');
+      await recalculateRequirementStatus(sourceId);
+    } else if (targetType === 'Requirement') {
+      await syncRequirementLinks(project, targetId, sourceType, sourceId, 'add');
+      await recalculateRequirementStatus(targetId);
+    }
+
     await logAudit(
       req,
       project,
@@ -71,6 +115,15 @@ export const deleteTraceLink = async (req: ProjectAuthRequest, res: Response) =>
     }
 
     await TraceLink.findByIdAndDelete(id);
+
+    // Sync requirement direct fields
+    if (traceLink.sourceType === 'Requirement') {
+      await syncRequirementLinks(traceLink.project.toString(), traceLink.sourceId.toString(), traceLink.targetType, traceLink.targetId.toString(), 'remove');
+      await recalculateRequirementStatus(traceLink.sourceId.toString());
+    } else if (traceLink.targetType === 'Requirement') {
+      await syncRequirementLinks(traceLink.project.toString(), traceLink.targetId.toString(), traceLink.sourceType, traceLink.sourceId.toString(), 'remove');
+      await recalculateRequirementStatus(traceLink.targetId.toString());
+    }
 
     await logAudit(
       req,

@@ -7,7 +7,7 @@ const auditLogger_1 = require("../utils/auditLogger");
 // 1. Create ADR (Draft state initially)
 const createADR = async (req, res) => {
     try {
-        const { project, code, title, context, decision, consequences } = req.body;
+        const { project, code, title, context, decision, consequences, affectedRequirements, affectedStack, supersededBy } = req.body;
         if (!project || !code || !title) {
             return res.status(400).json({ message: 'Project, code, and title are required' });
         }
@@ -27,8 +27,18 @@ const createADR = async (req, res) => {
             consequences: consequences || '',
             version: 1,
             requiredApprovals: 2, // Quorum of 2 out of 3 team members
-            currentApprovals: 0
+            currentApprovals: 0,
+            affectedRequirements: affectedRequirements || [],
+            affectedStack: affectedStack || [],
+            supersededBy: supersededBy || null,
+            isCriticalDecision: req.body.isCriticalDecision || false
         });
+        if (req.body.supersededAdrId) {
+            await models_1.ADRDecision.findByIdAndUpdate(req.body.supersededAdrId, {
+                status: 'Superseded',
+                supersededBy: adr._id
+            });
+        }
         await (0, auditLogger_1.logAudit)(req, project, 'CREATE_ADR', 'ADRDecision', adr._id.toString(), `Code: ${code}, Title: ${title} (Draft)`);
         return res.status(201).json(adr);
     }
@@ -91,6 +101,12 @@ const updateADR = async (req, res) => {
         }
         const oldStatus = adr.status;
         Object.assign(adr, req.body);
+        if (req.body.supersededAdrId) {
+            await models_1.ADRDecision.findByIdAndUpdate(req.body.supersededAdrId, {
+                status: 'Superseded',
+                supersededBy: adr._id
+            });
+        }
         // If edited after changes requested, increment version and reset reviews
         if (oldStatus === 'ChangesRequested') {
             adr.status = 'Draft';

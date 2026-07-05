@@ -1,12 +1,13 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Approval = exports.Deliverable = exports.Comment = exports.PresenceSession = exports.ProjectInvite = exports.AuditLog = exports.SourceDocument = exports.TraceLink = exports.Document = exports.Task = exports.Diagram = exports.Notification = exports.ADRReview = exports.ADRDecision = exports.Requirement = exports.Meeting = exports.TeamMember = exports.Project = exports.User = void 0;
+exports.ProjectEvaluation = exports.EvaluationRubric = exports.DocumentReview = exports.ProjectProposal = exports.Approval = exports.Deliverable = exports.Comment = exports.PresenceSession = exports.ProjectInvite = exports.AuditLog = exports.SourceDocument = exports.TraceLink = exports.Document = exports.Task = exports.Diagram = exports.Notification = exports.ADRReview = exports.ADRDecision = exports.Requirement = exports.Meeting = exports.TeamMember = exports.Project = exports.User = void 0;
 const mongoose_1 = require("mongoose");
 const UserSchema = new mongoose_1.Schema({
     name: { type: String, required: true },
     rut: { type: String, required: true, unique: true, index: true },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ['Admin', 'Editor', 'Viewer', 'Creador'], default: 'Viewer' },
+    role: { type: String, enum: ['Admin', 'Editor', 'Viewer', 'Creador', 'Docente', 'Evaluador', 'Coordinador'], default: 'Viewer' },
+    isActivated: { type: Boolean, default: false },
     assignedProjects: [{ type: mongoose_1.Schema.Types.ObjectId, ref: 'Project' }]
 }, { timestamps: true });
 exports.User = (0, mongoose_1.model)('User', UserSchema);
@@ -18,7 +19,7 @@ const ProjectSchema = new mongoose_1.Schema({
     restrictions: { type: String, default: '' },
     companyName: { type: String, default: '' },
     companyContact: { type: String, default: '' },
-    methodology: { type: String, enum: ['Scrum', 'Kanban', 'Waterfall', 'Hibrida', 'Personalizada'], default: 'Scrum' }
+    methodology: { type: String, enum: ['Scrum', 'Kanban', 'Waterfall', 'Hibrida', 'Personalizada', 'Agile', 'Espiral', 'Prototipos', 'RUP', 'XP', 'DevOps'], default: 'Scrum' }
 }, { timestamps: true });
 exports.Project = (0, mongoose_1.model)('Project', ProjectSchema);
 const TeamMemberSchema = new mongoose_1.Schema({
@@ -39,7 +40,49 @@ const MeetingSchema = new mongoose_1.Schema({
     summary: { type: String, default: '' },
     agreements: [{ type: String }],
     tasks: [{ type: String }],
-    risks: [{ type: String }]
+    risks: [{ type: String }],
+    // New fields:
+    participants: [{
+            name: { type: String, required: true },
+            role: { type: String },
+            email: { type: String }
+        }],
+    rawTranscript: { type: String, default: '' },
+    notes: { type: String, default: '' },
+    aiSummary: { type: String, default: '' },
+    agenda: { type: String, default: '' },
+    extractedActions: [{
+            title: { type: String, required: true },
+            description: { type: String, default: '' },
+            ownerName: { type: String, default: 'Sin definir' },
+            dueDate: { type: Date, default: null },
+            priority: { type: String, enum: ['Low', 'Medium', 'High'], default: 'Medium' },
+            confidence: { type: Number, default: 1.0 },
+            accepted: { type: Boolean, default: false },
+            convertedTaskId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Task', default: null }
+        }],
+    extractedRequirements: [{
+            type: { type: String, enum: ['Functional', 'NonFunctional'], required: true },
+            text: { type: String, required: true },
+            confidence: { type: Number, default: 1.0 },
+            accepted: { type: Boolean, default: false },
+            convertedRequirementId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Requirement', default: null }
+        }],
+    extractedDecisions: [{
+            text: { type: String, required: true },
+            accepted: { type: Boolean, default: false },
+            convertedToADR: { type: Boolean, default: false },
+            convertedADRId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'ADRDecision', default: null }
+        }],
+    extractedRisks: [{
+            text: { type: String, required: true },
+            severity: { type: String, enum: ['Low', 'Medium', 'High'], default: 'Medium' },
+            accepted: { type: Boolean, default: false }
+        }],
+    followUpDate: { type: Date, default: null },
+    status: { type: String, enum: ['Draft', 'Analyzed', 'Validated', 'Published'], default: 'Draft' },
+    advisorApprovalStatus: { type: String, enum: ['Pending', 'Conforme', 'Observada', 'Pendiente de Ajuste'], default: 'Pending' },
+    advisorApprovalFeedback: { type: String, default: '' }
 }, { timestamps: true });
 exports.Meeting = (0, mongoose_1.model)('Meeting', MeetingSchema);
 const RequirementSchema = new mongoose_1.Schema({
@@ -48,10 +91,32 @@ const RequirementSchema = new mongoose_1.Schema({
     code: { type: String, required: true },
     title: { type: String, required: true },
     description: { type: String, default: '' },
-    type: { type: String, enum: ['Functional', 'Non-Functional'], required: true },
-    priority: { type: String, enum: ['High', 'Medium', 'Low'], default: 'Medium' },
-    status: { type: String, enum: ['Draft', 'Approved', 'In-Progress', 'Completed'], default: 'Draft' },
-    source: { type: String, default: 'Manual' }
+    type: { type: String, enum: ['Functional', 'Non-Functional', 'NonFunctional', 'Business', 'Constraint'], required: true },
+    priority: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Medium' },
+    status: { type: String, enum: ['Draft', 'Under Review', 'Approved Baseline', 'Needs Adjustment', 'Obsolete'], default: 'Draft' },
+    advisorFeedback: { type: String, default: '' },
+    source: { type: String, default: 'Manual' },
+    methodologyTypeSnapshot: { type: String, default: 'scrum' },
+    workflowStatus: { type: String, default: 'Backlog' },
+    sprintRef: { type: String, default: '' },
+    phaseRef: { type: String, default: '' },
+    iterationRef: { type: String, default: '' },
+    prototypeVersionRef: { type: String, default: '' },
+    linkedTasks: [{ type: mongoose_1.Schema.Types.ObjectId, ref: 'Task' }],
+    linkedMeetings: [{ type: mongoose_1.Schema.Types.ObjectId, ref: 'Meeting' }],
+    linkedADRs: [{ type: mongoose_1.Schema.Types.ObjectId, ref: 'ADRDecision' }],
+    linkedDeliverables: [{ type: mongoose_1.Schema.Types.ObjectId, ref: 'Deliverable' }],
+    linkedTests: [{
+            title: { type: String, required: true },
+            description: { type: String, default: '' },
+            status: { type: String, enum: ['Pending', 'Passed', 'Failed'], default: 'Pending' }
+        }],
+    version: { type: Number, default: 1 },
+    sourceType: { type: String, enum: ['meeting', 'document', 'manual', 'rag', 'template'], default: 'manual' },
+    sourceRef: { type: mongoose_1.Schema.Types.ObjectId },
+    approvalStatus: { type: String, enum: ['Draft', 'Pending', 'Approved', 'Rejected'], default: 'Draft' },
+    approvedBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User' },
+    approvedAt: { type: Date }
 }, { timestamps: true });
 exports.Requirement = (0, mongoose_1.model)('Requirement', RequirementSchema);
 const ADRDecisionSchema = new mongoose_1.Schema({
@@ -75,7 +140,11 @@ const ADRDecisionSchema = new mongoose_1.Schema({
     requiredApprovals: { type: Number, default: 2 },
     currentApprovals: { type: Number, default: 0 },
     finalDecisionNote: { type: String },
-    supersededBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'ADRDecision' }
+    supersededBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'ADRDecision' },
+    affectedRequirements: { type: [String], default: [] },
+    affectedStack: { type: [String], default: [] },
+    advisorFeedback: { type: String, default: '' },
+    isCriticalDecision: { type: Boolean, default: false }
 }, { timestamps: true });
 exports.ADRDecision = (0, mongoose_1.model)('ADRDecision', ADRDecisionSchema);
 const ADRReviewSchema = new mongoose_1.Schema({
@@ -122,8 +191,33 @@ const DocumentSchema = new mongoose_1.Schema({
     title: { type: String, required: true },
     templateType: { type: String, default: 'Personalizada' },
     content: { type: String, default: '' },
-    status: { type: String, enum: ['Draft', 'Final'], default: 'Draft' },
-    exportedPdfPath: { type: String, default: '' }
+    status: { type: String, enum: ['Draft', 'InReview', 'Approved', 'Frozen'], default: 'Draft' },
+    exportedPdfPath: { type: String, default: '' },
+    level: { type: Number, default: 1 },
+    parentSection: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Document', default: null },
+    order: { type: Number, default: 0 },
+    assignedTo: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', default: null },
+    versions: [{
+            versionNumber: { type: Number, required: true },
+            content: { type: String, required: true },
+            commitMessage: { type: String, default: '' },
+            updatedBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+            createdAt: { type: Date, default: Date.now }
+        }],
+    evidence: [{
+            paragraphId: { type: String, required: true },
+            sourceType: { type: String, enum: ['Meeting', 'Requirement', 'ADRDecision', 'SourceDocument', 'Task'], required: true },
+            sourceId: { type: mongoose_1.Schema.Types.ObjectId, required: true },
+            matchedText: { type: String, default: '' },
+            confidence: { type: Number, default: 1.0 }
+        }],
+    citations: [{
+            citationKey: { type: String, required: true },
+            sourceType: { type: String, enum: ['ExternalPDF', 'InternalArtifact'], required: true },
+            sourceId: { type: mongoose_1.Schema.Types.ObjectId },
+            bibtexData: { type: String, default: '' },
+            citationString: { type: String, required: true }
+        }]
 }, { timestamps: true });
 exports.Document = (0, mongoose_1.model)('Document', DocumentSchema);
 const TraceLinkSchema = new mongoose_1.Schema({
@@ -239,7 +333,9 @@ const DeliverableSchema = new mongoose_1.Schema({
             comment: { type: String, default: '' },
             uploadedBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
             uploadedByName: { type: String, required: true },
-            createdAt: { type: Date, default: Date.now }
+            createdAt: { type: Date, default: Date.now },
+            advisorApprovalStatus: { type: String, enum: ['Pending', 'Approved', 'ChangesRequested'], default: 'Pending' },
+            advisorApprovalFeedback: { type: String, default: '' }
         }]
 }, { timestamps: true });
 exports.Deliverable = (0, mongoose_1.model)('Deliverable', DeliverableSchema);
@@ -272,3 +368,100 @@ const ApprovalSchema = new mongoose_1.Schema({
 }, { timestamps: true });
 ApprovalSchema.index({ project: 1, itemType: 1, itemId: 1 });
 exports.Approval = (0, mongoose_1.model)('Approval', ApprovalSchema);
+const ProjectProposalSchema = new mongoose_1.Schema({
+    project: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Project' },
+    student: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+    studentName: { type: String, required: true },
+    title: { type: String, required: true },
+    problem: { type: String, default: '' },
+    justification: { type: String, default: '' },
+    generalObjective: { type: String, default: '' },
+    specificObjectives: [{ type: String }],
+    contextInstitutional: { type: String, default: '' },
+    scope: { type: String, default: '' },
+    risks: [{ type: String }],
+    tentativeStack: [{ type: String }],
+    assignedAdvisor: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User' },
+    assignedAdvisorName: { type: String },
+    status: {
+        type: String,
+        enum: ['Draft', 'Submitted', 'InReview', 'ChangesRequested', 'Approved', 'Rejected'],
+        default: 'Draft',
+        required: true
+    },
+    feedback: { type: String, default: '' },
+    proposalFileUrl: { type: String, default: '' },
+    submittedAt: { type: Date },
+    reviewedAt: { type: Date }
+}, { timestamps: true });
+exports.ProjectProposal = (0, mongoose_1.model)('ProjectProposal', ProjectProposalSchema);
+const DocumentReviewSchema = new mongoose_1.Schema({
+    project: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Project', required: true },
+    itemType: {
+        type: String,
+        enum: ['Proposal', 'Chapter', 'Deliverable', 'FinalReport', 'Defense'],
+        required: true
+    },
+    itemId: { type: String, required: true },
+    itemTitle: { type: String, required: true },
+    version: { type: Number, default: 1 },
+    status: {
+        type: String,
+        enum: ['Draft', 'Submitted', 'InReview', 'ChangesRequested', 'Approved', 'Rejected', 'Archived'],
+        default: 'Submitted',
+        required: true
+    },
+    requestedBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+    requestedByName: { type: String, required: true },
+    reviewer: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+    reviewerName: { type: String, required: true },
+    reviewerSignature: { type: String, default: '' },
+    observations: { type: String, default: '' },
+    submittedAt: { type: Date, default: Date.now },
+    reviewedAt: { type: Date }
+}, { timestamps: true });
+exports.DocumentReview = (0, mongoose_1.model)('DocumentReview', DocumentReviewSchema);
+const EvaluationRubricSchema = new mongoose_1.Schema({
+    name: { type: String, required: true, unique: true },
+    description: { type: String, default: '' },
+    evaluationType: { type: String, enum: ['grupal', 'individual', 'mixta'], default: 'grupal', required: true },
+    criteria: [{
+            name: { type: String, required: true },
+            description: { type: String, default: '' },
+            weight: { type: Number, default: 1 },
+            dimension: { type: String, default: 'General' },
+            levels: [{
+                    name: { type: String, required: true },
+                    points: { type: Number, required: true },
+                    description: { type: String, default: '' }
+                }]
+        }],
+    isActive: { type: Boolean, default: true }
+}, { timestamps: true });
+exports.EvaluationRubric = (0, mongoose_1.model)('EvaluationRubric', EvaluationRubricSchema);
+const ProjectEvaluationSchema = new mongoose_1.Schema({
+    project: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Project', required: true },
+    rubric: { type: mongoose_1.Schema.Types.ObjectId, ref: 'EvaluationRubric', required: true },
+    rubricName: { type: String, required: true },
+    evaluator: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+    evaluatorName: { type: String, required: true },
+    evaluationType: { type: String, enum: ['grupal', 'individual', 'mixta'], default: 'grupal', required: true },
+    targetType: { type: String, enum: ['Team', 'Student'], default: 'Team', required: true },
+    studentTarget: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User' },
+    studentTargetName: { type: String },
+    grades: [{
+            criterionId: { type: String, required: true },
+            criterionName: { type: String, required: true },
+            score: { type: Number, required: true, min: 1, max: 5 },
+            comment: { type: String, default: '' }
+        }],
+    generalFeedback: { type: String, default: '' },
+    evidenceLinks: [{
+            entityType: { type: String, enum: ['Deliverable', 'Meeting', 'Task', 'Comment', 'Document', 'Other'], default: 'Other' },
+            entityId: { type: String, required: true },
+            label: { type: String, required: true }
+        }],
+    status: { type: String, enum: ['Draft', 'Published'], default: 'Draft', required: true },
+    totalScore: { type: Number, default: 0 }
+}, { timestamps: true });
+exports.ProjectEvaluation = (0, mongoose_1.model)('ProjectEvaluation', ProjectEvaluationSchema);

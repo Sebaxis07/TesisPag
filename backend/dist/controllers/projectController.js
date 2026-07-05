@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.loadTestProject = exports.deleteProject = exports.generatePresentationDefense = exports.compareProjectStacks = exports.removeTeamMember = exports.getTeamMembers = exports.addTeamMember = exports.updateProject = exports.getProjectById = exports.getProjects = exports.createProject = void 0;
+exports.getAdvisorDashboardSummary = exports.loadTestProject = exports.deleteProject = exports.generatePresentationDefense = exports.compareProjectStacks = exports.updateTeamMember = exports.removeTeamMember = exports.getTeamMembers = exports.addTeamMember = exports.updateProject = exports.getProjectById = exports.getProjects = exports.createProject = void 0;
 const models_1 = require("../models");
 const auth_1 = require("../middleware/auth");
 const auditLogger_1 = require("../utils/auditLogger");
@@ -168,6 +168,34 @@ const removeTeamMember = async (req, res) => {
     }
 };
 exports.removeTeamMember = removeTeamMember;
+const updateTeamMember = async (req, res) => {
+    try {
+        const { memberId } = req.params;
+        const { role, operationalRole, workload } = req.body;
+        const member = await models_1.TeamMember.findById(memberId);
+        if (!member) {
+            return res.status(404).json({ message: 'Miembro no encontrado.' });
+        }
+        const currentRole = await (0, auth_1.getProjectRole)(req.user._id, member.project.toString());
+        if (currentRole !== 'Admin' && req.user.role !== 'Admin') {
+            return res.status(403).json({ message: 'Solo los Admins del proyecto pueden editar miembros.' });
+        }
+        if (role)
+            member.role = role;
+        if (operationalRole !== undefined)
+            member.operationalRole = operationalRole;
+        if (workload !== undefined)
+            member.workload = workload;
+        await member.save();
+        const populated = await member.populate('user', 'name rut role');
+        await (0, auditLogger_1.logAudit)(req, member.project.toString(), 'UPDATE_PROJECT_MEMBER', 'TeamMember', memberId, `Updated member ${memberId}: role=${role}, operationalRole=${operationalRole}, workload=${workload}`);
+        return res.json(populated);
+    }
+    catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+exports.updateTeamMember = updateTeamMember;
 const compareProjectStacks = async (req, res) => {
     try {
         const { projectId } = req.params;
@@ -528,3 +556,211 @@ Este proyecto tiene como objetivo diseñar e implementar una arquitectura IoT ab
     }
 };
 exports.loadTestProject = loadTestProject;
+const getAdvisorDashboardSummary = async (req, res) => {
+    try {
+        const isDocente = req.user.role === 'Docente';
+        const isEvaluador = req.user.role === 'Evaluador';
+        const isCoordinador = req.user.role === 'Coordinador';
+        const isAdmin = req.user.role === 'Admin';
+        if (!isDocente && !isEvaluador && !isCoordinador && !isAdmin) {
+            return res.status(403).json({ message: 'Acceso denegado. Se requiere rol de Docente, Evaluador o Coordinador.' });
+        }
+        // Find all projects where this user is member
+        let memberships = [];
+        if (isAdmin) {
+            const allProjects = await models_1.Project.find({});
+            memberships = allProjects.map(p => ({ project: p._id }));
+        }
+        else {
+            memberships = await models_1.TeamMember.find({ user: req.user._id });
+        }
+        if (memberships.length === 0) {
+            return res.json({
+                kpis: {
+                    totalProjects: 0,
+                    totalStudents: 0,
+                    pendingReviewsCount: 0,
+                    pendingEvaluationsCount: 0,
+                    criticalAlertsCount: 0
+                },
+                projects: [],
+                pendingReviews: [],
+                recentActivity: []
+            });
+        }
+        const projectIds = memberships.map(m => m.project);
+        const projects = await models_1.Project.find({ _id: { $in: projectIds } });
+        // Fetch collections in parallel
+        const [teamMembers, meetings, tasks, requirements, adrs, documents, evaluations, traceLinks, documentReviews, proposals, auditLogs] = await Promise.all([
+            models_1.TeamMember.find({ project: { $in: projectIds } }).populate('user', 'name rut role isActivated'),
+            models_1.Meeting.find({ project: { $in: projectIds } }).sort({ date: -1 }),
+            models_1.Task.find({ project: { $in: projectIds } }).sort({ dueDate: 1 }),
+            models_1.Requirement.find({ project: { $in: projectIds } }),
+            models_1.ADRDecision.find({ project: { $in: projectIds } }),
+            models_1.Document.find({ project: { $in: projectIds } }),
+            models_1.ProjectEvaluation.find({ project: { $in: projectIds } }),
+            models_1.TraceLink.find({ project: { $in: projectIds } }),
+            models_1.DocumentReview.find({ reviewer: req.user._id, status: { $in: ['Submitted', 'InReview'] } }),
+            models_1.ProjectProposal.find({ assignedAdvisor: req.user._id, status: { $in: ['Submitted', 'InReview'] } }),
+            models_1.AuditLog.find({ project: { $in: projectIds } }).sort({ timestamp: -1 }).limit(15)
+        ]);
+        const processedProjects = projects.map(p => {
+            const projIdStr = p._id.toString();
+            // Members & students
+            const projMembers = teamMembers.filter(m => m.project.toString() === projIdStr);
+            const studentsList = projMembers.filter(m => m.user && !['Docente', 'Evaluador', 'Coordinador', 'Admin'].includes(m.user.role));
+            // Tasks
+            const projTasks = tasks.filter(t => t.project.toString() === projIdStr);
+            const completedTasksCount = projTasks.filter(t => t.status === 'Done').length;
+            const progress = projTasks.length > 0 ? Math.round((completedTasksCount / projTasks.length) * 100) : 0;
+            const expiredTasks = projTasks.filter(t => t.status !== 'Done' &&
+                t.dueDate &&
+                new Date(t.dueDate).getTime() < Date.now());
+            // Meetings
+            const projMeetings = meetings.filter(m => m.project.toString() === projIdStr);
+            const lastMeeting = projMeetings.length > 0 ? projMeetings[0] : null;
+            // Requirements consistency
+            const projRequirements = requirements.filter(r => r.project.toString() === projIdStr);
+            const requirementIdsLinkedToTasks = new Set(traceLinks
+                .filter(tl => tl.project.toString() === projIdStr && tl.sourceType === 'Requirement' && tl.targetType === 'Task')
+                .map(tl => tl.sourceId.toString()));
+            const orphanRequirementsCount = projRequirements.filter(r => !requirementIdsLinkedToTasks.has(r._id.toString())).length;
+            const unverifiedRequirementsCount = projRequirements.filter(r => !r.linkedTests || r.linkedTests.length === 0).length;
+            // ADRs & chapters
+            const projADRs = adrs.filter(a => a.project.toString() === projIdStr);
+            const pendingADRs = projADRs.filter(a => a.status === 'InReview').length;
+            const projDocs = documents.filter(d => d.project.toString() === projIdStr);
+            const currentDeliverable = projDocs.length > 0 ? projDocs[0].title : 'Ninguno';
+            // Assemble alerts
+            const alerts = [];
+            if (projMeetings.length === 0) {
+                alerts.push({ type: 'warning', message: 'No se han registrado minutas de reunión.' });
+            }
+            else if (lastMeeting) {
+                const days = Math.floor((Date.now() - new Date(lastMeeting.date).getTime()) / (1000 * 60 * 60 * 24));
+                if (days > 21) {
+                    alerts.push({ type: 'danger', message: `Sin reuniones en los últimos ${days} días.` });
+                }
+                else if (days > 14) {
+                    alerts.push({ type: 'warning', message: `Sin reuniones en los últimos ${days} días.` });
+                }
+            }
+            if (expiredTasks.length > 0) {
+                alerts.push({ type: 'danger', message: `${expiredTasks.length} tareas vencidas sin completar.` });
+            }
+            if (orphanRequirementsCount > 0) {
+                alerts.push({ type: 'warning', message: `${orphanRequirementsCount} requerimientos huérfanos (sin tareas).` });
+            }
+            if (unverifiedRequirementsCount > 0) {
+                alerts.push({ type: 'warning', message: `${unverifiedRequirementsCount} requerimientos sin pruebas de verificación.` });
+            }
+            if (pendingADRs > 0) {
+                alerts.push({ type: 'info', message: `${pendingADRs} decisiones de arquitectura (ADRs) en revisión.` });
+            }
+            // Calculate risk level
+            let risk = 'Low';
+            const dangerAlertsCount = alerts.filter(a => a.type === 'danger').length;
+            const warningAlertsCount = alerts.filter(a => a.type === 'warning').length;
+            if (dangerAlertsCount > 0 || warningAlertsCount >= 3) {
+                risk = 'High';
+            }
+            else if (warningAlertsCount > 0 || expiredTasks.length > 0) {
+                risk = 'Medium';
+            }
+            // Last activity date
+            let lastActivityDate = p.createdAt;
+            if (projMeetings.length > 0 && new Date(projMeetings[0].date).getTime() > new Date(lastActivityDate).getTime()) {
+                lastActivityDate = projMeetings[0].date;
+            }
+            if (projTasks.length > 0) {
+                const lastTaskDate = projTasks.reduce((max, t) => new Date(t.updatedAt || t.createdAt).getTime() > new Date(max).getTime() ? (t.updatedAt || t.createdAt) : max, p.createdAt);
+                if (new Date(lastTaskDate).getTime() > new Date(lastActivityDate).getTime()) {
+                    lastActivityDate = lastTaskDate;
+                }
+            }
+            return {
+                _id: p._id,
+                name: p.name,
+                description: p.description,
+                companyName: p.companyName,
+                methodology: p.methodology,
+                members: projMembers.map(m => ({
+                    _id: m._id,
+                    user: m.user,
+                    operationalRole: m.operationalRole,
+                    workload: m.workload
+                })),
+                students: studentsList.map(s => ({
+                    _id: s._id,
+                    user: s.user,
+                    operationalRole: s.operationalRole,
+                    tasksCount: projTasks.filter(t => t.assignedTo && t.assignedTo.toString() === s.user?._id?.toString()).length,
+                    tasksCompletedCount: projTasks.filter(t => t.assignedTo && t.assignedTo.toString() === s.user?._id?.toString() && t.status === 'Done').length,
+                    meetingsCount: projMeetings.filter(m => m.participants.some((pt) => pt.name === s.user?.name)).length,
+                    evaluationsReceived: evaluations.filter(e => e.targetType === 'Student' && e.studentTarget?.toString() === s.user?._id?.toString()).map(e => ({
+                        rubricName: e.rubricName,
+                        totalScore: e.totalScore,
+                        status: e.status
+                    }))
+                })),
+                progress,
+                risk,
+                alerts,
+                alertsCount: alerts.length,
+                currentDeliverable,
+                lastActivityDate,
+                createdAt: p.createdAt
+            };
+        });
+        const pendingReviewsCount = documentReviews.length + proposals.length;
+        const criticalAlertsCount = processedProjects.filter(p => p.risk === 'High').length;
+        const pendingEvaluationsCount = processedProjects.length;
+        const recentActivity = auditLogs.map(log => ({
+            _id: log._id,
+            projectName: projects.find(p => p._id.toString() === log.project.toString())?.name || 'Tesis',
+            userName: log.userName,
+            action: log.action,
+            resourceType: log.resourceType,
+            details: log.details,
+            timestamp: log.timestamp
+        }));
+        const kpis = {
+            totalProjects: processedProjects.length,
+            totalStudents: teamMembers.filter(m => m.user && !['Docente', 'Evaluador', 'Coordinador', 'Admin'].includes(m.user.role)).length,
+            pendingReviewsCount,
+            pendingEvaluationsCount,
+            criticalAlertsCount
+        };
+        const combinedPendingReviews = [
+            ...documentReviews.map(r => ({
+                _id: r._id,
+                project: r.project,
+                itemType: r.itemType,
+                itemTitle: r.itemTitle,
+                version: r.version,
+                requestedByName: r.requestedByName,
+                submittedAt: r.submittedAt || r.createdAt
+            })),
+            ...proposals.map(pr => ({
+                _id: pr._id,
+                project: pr.project,
+                itemType: 'Proposal',
+                itemTitle: pr.title,
+                version: 1,
+                requestedByName: pr.studentName,
+                submittedAt: pr.submittedAt || pr.createdAt
+            }))
+        ];
+        return res.json({
+            kpis,
+            projects: processedProjects,
+            pendingReviews: combinedPendingReviews,
+            recentActivity
+        });
+    }
+    catch (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'Error en getAdvisorDashboardSummary', error: error.message });
+    }
+};
+exports.getAdvisorDashboardSummary = getAdvisorDashboardSummary;

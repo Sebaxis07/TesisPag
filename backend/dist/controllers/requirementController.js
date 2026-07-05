@@ -4,10 +4,11 @@ exports.createRequirementsBulk = exports.extractRequirementsFromText = exports.d
 const models_1 = require("../models");
 const auth_1 = require("../middleware/auth");
 const auditLogger_1 = require("../utils/auditLogger");
+const requirementStatusHelper_1 = require("../utils/requirementStatusHelper");
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 const createRequirement = async (req, res) => {
     try {
-        const { project, code, title, description, type, priority, status, source } = req.body;
+        const { project, code, title, description, type, priority, status, source, methodologyTypeSnapshot, workflowStatus, sprintRef, phaseRef, iterationRef, prototypeVersionRef, sourceType, sourceRef, approvalStatus } = req.body;
         if (!project || !code || !title || !type) {
             return res.status(400).json({ message: 'Project, code, title, and type are required' });
         }
@@ -15,6 +16,14 @@ const createRequirement = async (req, res) => {
         const role = req.projectRole || (req.user.role === 'Admin' ? 'Admin' : await (0, auth_1.getProjectRole)(req.user._id, project));
         if (role !== 'Admin' && role !== 'Editor') {
             return res.status(403).json({ message: 'Only Admins or Editors can create requirements' });
+        }
+        // Resolve project methodology for the snapshot
+        let finalMethodology = methodologyTypeSnapshot;
+        if (!finalMethodology) {
+            const proj = await models_1.Project.findById(project);
+            if (proj) {
+                finalMethodology = proj.methodology;
+            }
         }
         const requirement = await models_1.Requirement.create({
             project,
@@ -25,7 +34,22 @@ const createRequirement = async (req, res) => {
             type,
             priority: priority || 'Medium',
             status: status || 'Draft',
-            source: source || 'Manual'
+            source: source || 'Manual',
+            methodologyTypeSnapshot: finalMethodology || 'scrum',
+            workflowStatus: workflowStatus || 'Backlog',
+            sprintRef: sprintRef || '',
+            phaseRef: phaseRef || '',
+            iterationRef: iterationRef || '',
+            prototypeVersionRef: prototypeVersionRef || '',
+            linkedTasks: [],
+            linkedMeetings: [],
+            linkedADRs: [],
+            linkedDeliverables: [],
+            linkedTests: [],
+            version: 1,
+            sourceType: sourceType || 'manual',
+            sourceRef: sourceRef || null,
+            approvalStatus: approvalStatus || 'Draft'
         });
         await (0, auditLogger_1.logAudit)(req, project, 'CREATE_REQUIREMENT', 'Requirement', requirement._id.toString(), `Code: ${code}, Title: ${title}`);
         return res.status(201).json(requirement);
@@ -42,7 +66,12 @@ const getRequirementsByProject = async (req, res) => {
         if (!role) {
             return res.status(403).json({ message: 'Access denied. You are not a member of this project.' });
         }
-        const requirements = await models_1.Requirement.find({ project: projectId }).sort({ code: 1 });
+        const requirements = await models_1.Requirement.find({ project: projectId })
+            .populate('linkedTasks')
+            .populate('linkedMeetings')
+            .populate('linkedADRs')
+            .populate('linkedDeliverables')
+            .sort({ code: 1 });
         return res.json(requirements);
     }
     catch (error) {
@@ -52,7 +81,11 @@ const getRequirementsByProject = async (req, res) => {
 exports.getRequirementsByProject = getRequirementsByProject;
 const getRequirementById = async (req, res) => {
     try {
-        const requirement = await models_1.Requirement.findById(req.params.id);
+        const requirement = await models_1.Requirement.findById(req.params.id)
+            .populate('linkedTasks')
+            .populate('linkedMeetings')
+            .populate('linkedADRs')
+            .populate('linkedDeliverables');
         if (!requirement) {
             return res.status(404).json({ message: 'Requirement not found' });
         }
@@ -83,8 +116,16 @@ const updateRequirement = async (req, res) => {
         }
         Object.assign(requirement, req.body);
         await requirement.save();
+        // Recalculate status (e.g. if linkedTests changed)
+        await (0, requirementStatusHelper_1.recalculateRequirementStatus)(requirement._id.toString());
         await (0, auditLogger_1.logAudit)(req, requirement.project.toString(), 'UPDATE_REQUIREMENT', 'Requirement', requirement._id.toString(), `Code: ${requirement.code}, Title: ${requirement.title}`);
-        return res.json(requirement);
+        // Fetch populated version to return
+        const populated = await models_1.Requirement.findById(requirement._id)
+            .populate('linkedTasks')
+            .populate('linkedMeetings')
+            .populate('linkedADRs')
+            .populate('linkedDeliverables');
+        return res.json(populated);
     }
     catch (error) {
         return res.status(500).json({ message: error.message });
@@ -164,6 +205,8 @@ const createRequirementsBulk = async (req, res) => {
         if (role !== 'Admin' && role !== 'Editor') {
             return res.status(403).json({ message: 'Only Admins or Editors can create requirements' });
         }
+        const proj = await models_1.Project.findById(project);
+        const finalMethodology = proj ? proj.methodology : 'scrum';
         const savedRequirements = [];
         for (const reqObj of requirements) {
             let existingReq = await models_1.Requirement.findOne({ project, code: reqObj.code });
@@ -173,6 +216,9 @@ const createRequirementsBulk = async (req, res) => {
                 existingReq.type = reqObj.type;
                 existingReq.priority = reqObj.priority || 'Medium';
                 existingReq.source = reqObj.source || 'Extracción IA';
+                if (!existingReq.methodologyTypeSnapshot) {
+                    existingReq.methodologyTypeSnapshot = finalMethodology;
+                }
                 await existingReq.save();
                 savedRequirements.push(existingReq);
             }
@@ -186,7 +232,22 @@ const createRequirementsBulk = async (req, res) => {
                     type: reqObj.type,
                     priority: reqObj.priority || 'Medium',
                     status: 'Draft',
-                    source: reqObj.source || 'Extracción IA'
+                    source: reqObj.source || 'Extracción IA',
+                    methodologyTypeSnapshot: finalMethodology,
+                    workflowStatus: 'Backlog',
+                    sprintRef: '',
+                    phaseRef: '',
+                    iterationRef: '',
+                    prototypeVersionRef: '',
+                    linkedTasks: [],
+                    linkedMeetings: [],
+                    linkedADRs: [],
+                    linkedDeliverables: [],
+                    linkedTests: [],
+                    version: 1,
+                    sourceType: reqObj.sourceType || 'rag',
+                    sourceRef: reqObj.sourceRef || null,
+                    approvalStatus: 'Draft'
                 });
                 savedRequirements.push(newReq);
             }

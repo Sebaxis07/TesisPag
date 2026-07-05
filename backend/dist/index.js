@@ -26,6 +26,9 @@ const presenceRoutes_1 = __importDefault(require("./routes/presenceRoutes"));
 const commentRoutes_1 = __importDefault(require("./routes/commentRoutes"));
 const deliverableRoutes_1 = __importDefault(require("./routes/deliverableRoutes"));
 const approvalRoutes_1 = __importDefault(require("./routes/approvalRoutes"));
+const proposalRoutes_1 = __importDefault(require("./routes/proposalRoutes"));
+const reviewRoutes_1 = __importDefault(require("./routes/reviewRoutes"));
+const evaluationRoutes_1 = __importDefault(require("./routes/evaluationRoutes"));
 dotenv_1.default.config();
 // Enforce JWT_SECRET requirement
 if (!process.env.JWT_SECRET) {
@@ -68,6 +71,9 @@ app.use('/api/presence', presenceRoutes_1.default);
 app.use('/api/comments', commentRoutes_1.default);
 app.use('/api/deliverables', deliverableRoutes_1.default);
 app.use('/api/approvals', approvalRoutes_1.default);
+app.use('/api/proposals', proposalRoutes_1.default);
+app.use('/api/reviews', reviewRoutes_1.default);
+app.use('/api/evaluations', evaluationRoutes_1.default);
 // Global Error Handler
 app.use((err, req, res, next) => {
     console.error(err.stack);

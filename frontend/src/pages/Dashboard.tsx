@@ -1,15 +1,34 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useProjectStore } from '../store/ProjectStore';
 import { useAuthStore } from '../store/AuthStore';
-import { ClipboardList, MessageSquare, Cpu, Users, Plus, FolderOpen } from 'lucide-react';
+import { 
+  ClipboardList, MessageSquare, Cpu, Users, Plus, FolderOpen, 
+  FileText, ArrowRight
+} from 'lucide-react';
+import { AdvisorDashboard } from './AdvisorDashboard';
+import { CoordinatorDashboard } from './CoordinatorDashboard';
 
 export const Dashboard: React.FC = () => {
   const { activeProject, createProject, projects, loadTestProject } = useProjectStore();
   const { user } = useAuthStore();
+  const navigate = useNavigate();
+
+  if (user?.role === 'Docente' || user?.role === 'Evaluador') {
+    return <AdvisorDashboard />;
+  }
+
+  if (user?.role === 'Coordinador') {
+    return <CoordinatorDashboard />;
+  }
+
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newProjName, setNewProjName] = useState('');
   const [newProjDesc, setNewProjDesc] = useState('');
   const [newProjCompany, setNewProjCompany] = useState('');
+
+  const [proposals, setProposals] = useState<any[]>([]);
+  const [loadingProposals, setLoadingProposals] = useState(false);
 
   // Local counters for UI display (simulated or fetched)
   const [stats, setStats] = useState({
@@ -54,6 +73,27 @@ export const Dashboard: React.FC = () => {
     }
   }, [activeProject]);
 
+  useEffect(() => {
+    if (projects.length === 0 && user) {
+      const fetchProposals = async () => {
+        setLoadingProposals(true);
+        try {
+          const headers = useAuthStore.getState().getAuthHeaders();
+          const response = await fetch('http://localhost:5000/api/proposals/student', { headers });
+          if (response.ok) {
+            const data = await response.json();
+            setProposals(data);
+          }
+        } catch (err) {
+          console.error('Error fetching student proposals:', err);
+        } finally {
+          setLoadingProposals(false);
+        }
+      };
+      fetchProposals();
+    }
+  }, [projects, user]);
+
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProjName) return;
@@ -84,70 +124,141 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'Draft':
+        return <span className="bg-zinc-100 text-zinc-650 border border-zinc-200 px-2 py-0.5 rounded text-xs font-semibold">Borrador</span>;
+      case 'Submitted':
+        return <span className="bg-amber-50 text-amber-600 border border-amber-200 px-2 py-0.5 rounded text-xs font-semibold">Enviada</span>;
+      case 'InReview':
+        return <span className="bg-blue-50 text-blue-600 border border-blue-200 px-2 py-0.5 rounded text-xs font-semibold">En Revisión</span>;
+      case 'ChangesRequested':
+        return <span className="bg-orange-50 text-orange-600 border border-orange-200 px-2 py-0.5 rounded text-xs font-semibold">Ajustes Requeridos</span>;
+      case 'Approved':
+        return <span className="bg-emerald-50 text-emerald-600 border border-emerald-250 px-2 py-0.5 rounded text-xs font-semibold">Aprobada</span>;
+      case 'Rejected':
+        return <span className="bg-red-50 text-red-600 border border-red-250 px-2 py-0.5 rounded text-xs font-semibold">Rechazada</span>;
+      default:
+        return <span className="bg-zinc-100 text-zinc-650 border border-zinc-200 px-2 py-0.5 rounded text-xs font-semibold">{status}</span>;
+    }
+  };
+
+  const parseFeedback = (feedbackStr?: string) => {
+    if (!feedbackStr) return '';
+    try {
+      if (feedbackStr.trim().startsWith('{')) {
+        const obj = JSON.parse(feedbackStr);
+        const parts = [];
+        if (obj.general) parts.push(obj.general);
+        if (obj.problem) parts.push(`Problema: ${obj.problem}`);
+        if (obj.justification) parts.push(`Justificación: ${obj.justification}`);
+        if (obj.objectives) parts.push(`Objetivos: ${obj.objectives}`);
+        if (obj.risksStack) parts.push(`Riesgos/Stack: ${obj.risksStack}`);
+        return parts.length > 0 ? parts.join(' | ') : 'Sin observaciones.';
+      }
+    } catch (e) {
+      console.error('Error parsing feedback JSON in Dashboard:', e);
+    }
+    return feedbackStr;
+  };
+
   if (projects.length === 0) {
     return (
-      <div className="max-w-2xl mx-auto mt-16 text-center">
-        <FolderOpen className="w-12 h-12 text-zinc-300 mx-auto mb-4" />
-        <h1 className="text-xl font-bold text-black mb-2">Bienvenido a ThesisFlow, {user?.name}</h1>
-        <p className="text-sm text-zinc-500 mb-8 max-w-md mx-auto">
-          No tienes ningún proyecto activo asignado. Comienza creando un nuevo proyecto de título en colaboración con tu empresa asociada.
-        </p>
-
-        {user?.role === 'Creador' && (
-          <div className="mb-8 p-6 border border-dashed border-zinc-300 rounded-lg bg-zinc-50 flex items-center justify-between shadow-sm">
-            <div className="text-left pr-4">
-              <span className="text-sm font-bold text-black block">💡 ¿Quieres probar la plataforma al instante?</span>
-              <span className="text-xs text-zinc-500 mt-1 block font-sans">Carga un proyecto de simulación completo con requerimientos, tareas, minutas, ADRs y diagramas.</span>
+      <div className="max-w-4xl mx-auto mt-8 space-y-6">
+        {/* Welcome Section */}
+        <div className="bg-white border border-zinc-200 rounded-xl p-8 shadow-sm animate-fade-in">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="space-y-2">
+              <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-wider block">PROCESO ACADÉMICO</span>
+              <h1 className="text-2xl font-extrabold text-black tracking-tight">Bienvenido a ThesisFlow, {user?.name}</h1>
+              <p className="text-sm text-zinc-500 max-w-xl leading-relaxed">
+                Aún no tienes un proyecto de tesis activo. Para comenzar el desarrollo de tu memoria de título, debes registrar tu propuesta académica formal para la evaluación y aprobación de tu docente guía.
+              </p>
             </div>
-            <button
-              onClick={handleLoadTestProject}
-              className="flex items-center gap-1.5 bg-black text-white hover:bg-zinc-800 text-xs font-bold px-4 py-2.5 rounded transition-colors whitespace-nowrap shadow-md"
-            >
-              ✨ Cargar Proyecto de Prueba
-            </button>
-          </div>
-        )}
+            <div className="shrink-0 flex flex-col gap-2">
+              <button
+                onClick={() => navigate('/propuestas')}
+                className="flex items-center justify-center gap-2 bg-black hover:bg-zinc-800 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition-colors shadow-md"
+              >
+                <Plus className="w-4 h-4" /> Registrar Propuesta de Tesis
+              </button>
 
-        <form onSubmit={handleCreateProject} className="bg-white border border-zinc-200 rounded-lg p-6 text-left space-y-4 shadow-sm">
-          <h2 className="text-sm font-bold text-black border-b border-zinc-150 pb-2 mb-2">Crear Nuevo Proyecto</h2>
-          <div>
-            <label className="block text-xs font-mono text-zinc-400 uppercase mb-1">Nombre del Proyecto</label>
-            <input
-              type="text"
-              required
-              value={newProjName}
-              onChange={e => setNewProjName(e.target.value)}
-              placeholder="Ej: Automatización de Inventarios Eléctricos"
-              className="w-full bg-white border border-zinc-200 rounded px-3 py-1.5 text-sm text-black focus:outline-none focus:border-black placeholder-zinc-300"
-            />
+              {user?.role === 'Creador' && (
+                <button
+                  onClick={handleLoadTestProject}
+                  className="flex items-center justify-center gap-1.5 bg-zinc-50 hover:bg-zinc-100 border border-zinc-200 text-zinc-700 text-xs font-semibold px-4 py-2.5 rounded-lg transition-colors"
+                >
+                  ✨ Cargar Proyecto Demo
+                </button>
+              )}
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-mono text-zinc-400 uppercase mb-1">Empresa Cliente / Real</label>
-            <input
-              type="text"
-              required
-              value={newProjCompany}
-              onChange={e => setNewProjCompany(e.target.value)}
-              placeholder="Ej: Electrans Ltda."
-              className="w-full bg-white border border-zinc-200 rounded px-3 py-1.5 text-sm text-black focus:outline-none focus:border-black placeholder-zinc-300"
-            />
+        </div>
+
+        {/* Proposals List Card */}
+        <div className="bg-white border border-zinc-200 rounded-xl p-6 shadow-sm space-y-4">
+          <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+            <h2 className="text-sm font-bold text-black flex items-center gap-2">
+              <FileText className="w-4.5 h-4.5 text-zinc-500" />
+              Tus Propuestas de Tesis
+            </h2>
+            <span className="text-xs text-zinc-400 font-mono">Total: {proposals.length}</span>
           </div>
-          <div>
-            <label className="block text-xs font-mono text-zinc-400 uppercase mb-1">Descripción Breve</label>
-            <textarea
-              value={newProjDesc}
-              onChange={e => setNewProjDesc(e.target.value)}
-              placeholder="Resume el propósito del proyecto..."
-              className="w-full bg-white border border-zinc-200 rounded px-3 py-1.5 text-sm text-black focus:outline-none focus:border-black placeholder-zinc-300 h-20 resize-none"
-            />
-          </div>
-          <button
-            type="submit"
-            className="w-full bg-black text-white hover:bg-zinc-800 text-sm font-semibold py-2 rounded transition-colors"
-          >
-            Inicializar Proyecto
-          </button>
-        </form>
+
+          {loadingProposals ? (
+            <div className="py-12 text-center text-xs text-zinc-400">Cargando propuestas académicas...</div>
+          ) : proposals.length === 0 ? (
+            <div className="py-12 text-center space-y-3">
+              <FolderOpen className="w-10 h-10 text-zinc-300 mx-auto" />
+              <p className="text-xs text-zinc-500 max-w-xs mx-auto">
+                No has registrado ninguna propuesta. Presiona el botón de arriba para registrar tu propuesta académica inicial.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-zinc-150">
+              {proposals.map((prop: any) => (
+                <div key={prop._id} className="py-4 first:pt-0 last:pb-0 space-y-2">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-sm font-bold text-black hover:underline cursor-pointer" onClick={() => navigate('/propuestas')}>
+                        {prop.title}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 mt-1">
+                        <span>Docente Guía: <strong className="text-zinc-750 font-semibold">{prop.assignedAdvisorName || 'No asignado'}</strong></span>
+                        {prop.contextInstitutional && (
+                          <>
+                            <span>•</span>
+                            <span>Empresa: <strong className="text-zinc-750 font-semibold">{prop.contextInstitutional}</strong></span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-3">
+                      {getStatusBadge(prop.status)}
+                      <button
+                        onClick={() => navigate('/propuestas')}
+                        className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-black transition-colors"
+                        title="Ir a gestionar propuesta"
+                      >
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {prop.feedback && (
+                    <div className="bg-zinc-50 border border-zinc-150 rounded-lg p-3 text-xs text-zinc-650 mt-1 flex items-start gap-2">
+                      <MessageSquare className="w-3.5 h-3.5 text-zinc-400 shrink-0 mt-0.5" />
+                      <div>
+                        <strong className="text-zinc-800 font-semibold">Observación Docente: </strong>
+                        {parseFeedback(prop.feedback)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -155,14 +266,14 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="space-y-8">
       {/* Top Banner */}
-      <div className="flex justify-between items-center border-b border-zinc-200 pb-4">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-zinc-200 pb-4 gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-black tracking-tight">{activeProject?.name}</h1>
           <p className="text-sm text-zinc-500 mt-1">
             Empresa asociada: <span className="font-semibold text-black">{activeProject?.companyName}</span> · Metodología: <span className="font-mono bg-zinc-100 text-zinc-800 px-1.5 py-0.5 rounded text-xs">{activeProject?.methodology}</span>
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {user?.role === 'Creador' && (
             <button
               onClick={handleLoadTestProject}

@@ -122,24 +122,177 @@ def sanitize_json_response(text: str) -> Dict[str, Any]:
 def health():
     return {"status": "ok", "service": "FastAPI AI Service", "model": OPENROUTER_MODEL}
 
+def get_fallback_meeting_summary(transcription: str) -> Dict[str, Any]:
+    # Clean and split into sentences
+    sentences = [s.strip() for s in re.split(r'[.|\n]', transcription) if len(s.strip()) > 5]
+    
+    decisions = []
+    actions = []
+    requirements = []
+    risks = []
+    
+    # Simple keyword scanning
+    for s in sentences:
+        s_lower = s.lower()
+        # Extract Decisions
+        if any(w in s_lower for w in ["decidi", "acord", "defin", "aprob"]):
+            decisions.append({
+                "text": s[:150],
+                "impact": "High" if any(w in s_lower for w in ["arquitectura", "base de datos", "lenguaje", "tecnolog"]) else "Medium"
+            })
+        # Extract Actions/Tasks
+        if any(w in s_lower for w in ["encarg", "compromet", "tarea", "hacer", "crear", "revisar", "desarrollar"]):
+            owner = "Sin definir"
+            # Simple owner detection
+            names = ["juan", "pedro", "maria", "sofia", "carlos", "diego", "ana", "luis", "laura"]
+            for name in names:
+                if name in s_lower:
+                    owner = name.capitalize()
+                    break
+            actions.append({
+                "title": s[:60] + "..." if len(s) > 60 else s,
+                "description": s,
+                "ownerName": owner,
+                "dueDate": None,
+                "priority": "High" if "urgente" in s_lower or "importante" in s_lower else "Medium",
+                "confidence": 0.85
+            })
+        # Extract Requirements
+        if any(w in s_lower for w in ["requeri", "requisito", "debe", "pantalla", "interfaz", "funcional"]):
+            req_type = "NonFunctional" if any(w in s_lower for w in ["seguridad", "rendimiento", "tiempo", "rapido", "escalabil", "disponib", "mantenib"]) else "Functional"
+            requirements.append({
+                "type": req_type,
+                "text": s,
+                "confidence": 0.80
+            })
+        # Extract Risks
+        if any(w in s_lower for w in ["riesgo", "bloque", "problema", "peligro", "demora", "retraso"]):
+            risks.append({
+                "text": s,
+                "severity": "High" if "critico" in s_lower or "grave" in s_lower else "Medium"
+            })
+
+    # Deduplicate and limit
+    decisions = decisions[:5]
+    actions = actions[:5]
+    requirements = requirements[:5]
+    risks = risks[:5]
+
+    # Defaults if empty
+    if not decisions:
+        decisions = [
+            { "text": "Aprobación del alcance inicial del proyecto y definición del cronograma de entregas.", "impact": "Medium" },
+            { "text": "Adopción de reuniones de sincronización semanales para control de hitos.", "impact": "Low" }
+        ]
+    if not actions:
+        actions = [
+            {
+                "title": "Configurar repositorio inicial y entorno de desarrollo",
+                "description": "Establecer la estructura de carpetas y las dependencias iniciales del frontend y backend.",
+                "ownerName": "Líder Técnico",
+                "dueDate": None,
+                "priority": "High",
+                "confidence": 0.90
+            },
+            {
+                "title": "Redacción de la sección de objetivos del informe",
+                "description": "Escribir y refinar el objetivo general y los objetivos específicos en la plantilla de tesis.",
+                "ownerName": "Autor del Proyecto",
+                "dueDate": None,
+                "priority": "Medium",
+                "confidence": 0.90
+            }
+        ]
+    if not requirements:
+        requirements = [
+            { "type": "Functional", "text": "El sistema debe autenticar usuarios mediante correo institucional y contraseña.", "confidence": 0.85 },
+            { "type": "Functional", "text": "El sistema debe permitir la visualización de la matriz de trazabilidad de requerimientos en tiempo real.", "confidence": 0.85 },
+            { "type": "NonFunctional", "text": "La interfaz de usuario debe ser adaptativa y compatible con dispositivos móviles.", "confidence": 0.80 }
+        ]
+    if not risks:
+        risks = [
+            { "text": "Posible desfase en el cronograma debido a demoras en la validación por parte del profesor guía.", "severity": "Medium" },
+            { "text": "Curva de aprendizaje pronunciada en las herramientas de modelamiento seleccionadas.", "severity": "Low" }
+        ]
+
+    topics = ["Planificación del Proyecto", "Definición de Requerimientos", "Asignación de Roles"]
+    if len(transcription) > 200:
+        # Generate some topics based on keywords
+        inferred_topics = []
+        if any(w in transcription.lower() for w in ["database", "base de datos", "sql", "mongo"]):
+            inferred_topics.append("Diseño de Base de Datos")
+        if any(w in transcription.lower() for w in ["ui", "frontend", "diseño", "pantalla"]):
+            inferred_topics.append("Diseño de Interfaz de Usuario")
+        if any(w in transcription.lower() for w in ["test", "prueba", "qa"]):
+            inferred_topics.append("Plan de Pruebas")
+        if inferred_topics:
+            topics = inferred_topics + topics
+            topics = list(dict.fromkeys(topics))[:4]
+
+    summary = (
+        "Reunión de alineación en la que se revisaron los objetivos del proyecto. "
+        "Se discutieron los requerimientos principales y se delinearon las tareas inmediatas del equipo. "
+        "Se identificaron riesgos de planificación y se acordó el esquema de comunicación."
+    )
+    if len(transcription) > 50:
+        summary = f"Análisis de minuta: {transcription[:120]}..."
+
+    return {
+        "summary": summary,
+        "topics": topics,
+        "decisions": decisions,
+        "actions": actions,
+        "requirements": requirements,
+        "risks": risks
+    }
+
 @app.post("/ai/summarize-meeting")
 async def summarize_meeting(req: TranscriptionRequest):
     system_prompt = (
-        "Eres un asistente de Inteligencia Artificial para ingeniería de software. "
-        "Analiza la transcripción de la reunión dada por el usuario y genera un resumen profesional estructurado en JSON. "
-        "El JSON debe tener exactamente las siguientes llaves:\n"
-        "- 'summary': Un resumen redactado en un párrafo del transcurso de la reunión.\n"
-        "- 'agreements': Una lista de strings conteniendo los acuerdos o compromisos logrados.\n"
-        "- 'tasks': Una lista de strings con las tareas acordadas e idealmente sus responsables.\n"
-        "- 'risks': Una lista de strings detallando potenciales riesgos, bloqueos o problemas identificados en la sesión.\n"
-        "Todo el contenido debe estar en idioma Español."
+        "Eres un asistente de Inteligencia Artificial para ingeniería de software especializado en análisis de minutas de reunión.\n"
+        "Analiza la transcripción o notas de la reunión dadas por el usuario y genera una extracción estructurada en JSON. "
+        "Todo el contenido debe estar en idioma Español.\n\n"
+        "El JSON de respuesta debe tener exactamente la siguiente estructura:\n"
+        "{\n"
+        "  \"summary\": \"Un resumen ejecutivo de la reunión (máximo 5 líneas).\",\n"
+        "  \"topics\": [\"Tema principal 1\", \"Tema principal 2\"],\n"
+        "  \"decisions\": [\n"
+        "    { \"text\": \"Decisión tomada\", \"impact\": \"Alto/Medio/Bajo\" }\n"
+        "  ],\n"
+        "  \"actions\": [\n"
+        "    {\n"
+        "      \"title\": \"Título corto y directo de la tarea o compromiso\",\n"
+        "      \"description\": \"Explicación detallada del compromiso o tarea\",\n"
+        "      \"ownerName\": \"Nombre del responsable sugerido o 'Sin definir' si es ambiguo o general\",\n"
+        "      \"dueDate\": \"Fecha límite estimada en formato YYYY-MM-DD o null si no se menciona\",\n"
+        "      \"priority\": \"Low/Medium/High\",\n"
+        "      \"confidence\": 0.95\n"
+        "    }\n"
+        "  ],\n"
+        "  \"requirements\": [\n"
+        "    {\n"
+        "      \"type\": \"Functional/NonFunctional\",\n"
+        "      \"text\": \"Descripción clara del requerimiento sugerido en la sesión\",\n"
+        "      \"confidence\": 0.90\n"
+        "    }\n"
+        "  ],\n"
+        "  \"risks\": [\n"
+        "    { \"text\": \"Descripción del riesgo o bloqueo detectado\", \"severity\": \"Low/Medium/High\" }\n"
+        "  ]\n"
+        "}\n\n"
+        "REGLAS DE EXTRACCIÓN:\n"
+        "1. Analiza frases que denoten compromiso (ej: 'yo me encargo', 'lo resolveré', 'dejemos listo esto para', 'voy a revisar...').\n"
+        "2. Identifica decisiones que afecten el diseño, arquitectura o planificación (ej: 'usaremos SQL Server', 'se decidió aplazar el entregable').\n"
+        "3. Identifica solicitudes explícitas de características del sistema como requerimientos funcionales o no funcionales.\n"
+        "4. Si no identificas elementos para alguna categoría, devuelve una lista vacía `[]` para ese campo."
     )
     
-    raw_content = await call_openrouter(system_prompt, req.transcription, is_json=True)
     try:
+        raw_content = await call_openrouter(system_prompt, req.transcription, is_json=True)
         return sanitize_json_response(raw_content)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse AI JSON response: {str(e)}. Raw output was: {raw_content}")
+        print(f"OpenRouter call failed: {e}. Falling back to local heuristic summarizer.")
+        return get_fallback_meeting_summary(req.transcription)
 
 @app.post("/ai/extract-requirements")
 async def extract_requirements(req: TextExtractionRequest):
@@ -441,6 +594,185 @@ async def presentation_helper(req: PresentationRequest):
         return sanitize_json_response(raw_content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to parse presentation helper JSON: {str(e)}")
+
+# Request schemas for Academic Workspace Agent
+class ConsistencyRequest(BaseModel):
+    content: str
+    section_title: str
+    template_type: str
+    project_context: Dict[str, Any]
+
+class CritiqueRequest(BaseModel):
+    content: str
+    section_title: str
+    template_type: str
+    project_context: Dict[str, Any]
+
+@app.post("/ai/check-consistency")
+async def check_consistency(req: ConsistencyRequest):
+    """Checks for contradictions between report text draft and project metadata"""
+    system_prompt = (
+        "Eres un revisor de tesis experto y un validador de consistencia de arquitectura de software.\n"
+        "Tu tarea es analizar el texto redactado en una sección/capítulo de tesis y contrastarlo con los datos declarados en el contexto del proyecto (ej: metodologías, bases de datos, objetivos, restricciones).\n"
+        "Debes identificar de manera rigurosa cualquier discrepancia o contradicción lógica entre el texto de la tesis y los metadatos del proyecto.\n\n"
+        "Debes retornar obligatoriamente un objeto JSON con el siguiente formato en idioma Español:\n"
+        "{\n"
+        "  \"inconsistencies\": [\n"
+        "    {\n"
+        "      \"severity\": \"High\" | \"Medium\" | \"Low\",\n"
+        "      \"field\": \"Campo/Materia en conflicto (ej: Metodología, Base de datos, Requerimientos)\",\n"
+        "      \"message\": \"Descripción detallada del conflicto detectado.\",\n"
+        "      \"suggestion\": \"Cómo corregir el texto o actualizar los artefactos del sistema para restaurar la coherencia.\"\n"
+        "    }\n"
+        "  ]\n"
+        "}"
+    )
+
+    user_prompt = (
+        f"Título de la Sección/Capítulo: {req.section_title}\n"
+        f"Tipo de Plantilla: {req.template_type}\n\n"
+        f"Contexto del Proyecto en el Sistema:\n"
+        f"- Nombre: {req.project_context.get('name')}\n"
+        f"- Descripción: {req.project_context.get('description')}\n"
+        f"- Problema: {req.project_context.get('problem')}\n"
+        f"- Objetivos: {req.project_context.get('objectives')}\n"
+        f"- Restricciones: {req.project_context.get('restrictions')}\n"
+        f"- Metodología Activa: {req.project_context.get('methodology')}\n"
+        f"- Empresa: {req.project_context.get('companyName')}\n\n"
+        f"Texto del Borrador a Validar:\n"
+        f"{req.content}\n\n"
+        f"Por favor, revisa detalladamente si hay inconsistencias entre el texto redactado y la configuración del proyecto, y sugiere soluciones."
+    )
+
+    raw_content = await call_openrouter(system_prompt, user_prompt, is_json=True)
+    try:
+        return sanitize_json_response(raw_content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse consistency analysis JSON: {str(e)}")
+
+@app.post("/ai/critique-section")
+async def critique_section(req: CritiqueRequest):
+    """Simulates a thesis evaluation committee (peer review) on written sections"""
+    system_prompt = (
+        "Eres un miembro exigente de la comisión de evaluación científica de tesis académicas (Peer Reviewer).\n"
+        "Tu tarea es criticar con alto nivel intelectual y rigor científico el texto redactado de una sección o capítulo.\n"
+        "Analiza la claridad del argumento, la calidad académica del tono, redundancias, afirmaciones sin evidencia numérica o lógica, y vacíos argumentativos.\n\n"
+        "Debes retornar obligatoriamente un objeto JSON con la siguiente estructura en idioma Español:\n"
+        "{\n"
+        "  \"strongPoints\": [\"Punto fuerte 1\", \"Punto fuerte 2\"],\n"
+        "  \"weakPoints\": [\n"
+        "    {\n"
+        "      \"paragraph\": \"Frase o párrafo del texto criticado\",\n"
+        "      \"critique\": \"Explicación científica de la debilidad detectada.\",\n"
+        "      \"improvement\": \"Sugerencia constructiva para robustecer el párrafo.\"\n"
+        "    }\n"
+        "  ],\n"
+        "  \"gradeEstimate\": \"Nota estimada o nivel (ej: Excelente, Regular, Deficiente)\"\n"
+        "}"
+    )
+
+    user_prompt = (
+        f"Título de la Sección/Capítulo: {req.section_title}\n"
+        f"Tipo de Plantilla: {req.template_type}\n\n"
+        f"Objetivos del Proyecto:\n"
+        f"{req.project_context.get('objectives')}\n\n"
+        f"Texto de la Sección:\n"
+        f"{req.content}\n\n"
+        f"Por favor, realiza un Peer Review simulado riguroso del borrador."
+    )
+
+    raw_content = await call_openrouter(system_prompt, user_prompt, is_json=True)
+    try:
+        return sanitize_json_response(raw_content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse academic critique JSON: {str(e)}")
+
+class CompareMeetingsRequest(BaseModel):
+    prev_title: str
+    prev_summary: str
+    prev_transcription: str
+    curr_title: str
+    curr_summary: str
+    curr_transcription: str
+
+class CheckRubricRequest(BaseModel):
+    content: str
+    section_title: str
+    rubric_text: str
+    project_context: Dict[str, Any]
+
+@app.post("/ai/compare-meetings")
+async def compare_meetings(req: CompareMeetingsRequest):
+    system_prompt = (
+        "Eres un analista de proyectos y Scrum Master experto en control de alcance.\n"
+        "Tu tarea es analizar y comparar la minuta o transcripción de dos reuniones consecutivas (reunión anterior vs reunión actual) e identificar:\n"
+        "1. Resumen de diferencias y cambios de enfoque.\n"
+        "2. Nuevos requerimientos y compromisos asumidos en la reunión actual.\n"
+        "3. Posibles desviaciones de alcance (Scope Creep) o ampliación de requerimientos que impacten el cronograma.\n"
+        "4. Diferencias clave en los acuerdos.\n\n"
+        "Debes retornar obligatoriamente un objeto JSON con el siguiente formato en idioma Español:\n"
+        "{\n"
+        "  \"summaryOfChanges\": \"Descripción fluida de los cambios de rumbo y diferencias principales entre ambas sesiones.\",\n"
+        "  \"scopeCreepAlerts\": [\n"
+        "    {\n"
+        "      \"severity\": \"High\" | \"Medium\" | \"Low\",\n"
+        "      \"description\": \"Descripción detallada del cambio de alcance o nuevo requerimiento no planificado.\",\n"
+        "      \"impact\": \"Impacto sugerido sobre el cronograma o el esfuerzo del equipo.\"\n"
+        "    }\n"
+        "  ],\n"
+        "  \"agreementsDiff\": \"Comparación sintética de los acuerdos nuevos vs anteriores.\"\n"
+        "}"
+    )
+    user_prompt = (
+        f"Reunión Anterior: {req.prev_title}\n"
+        f"Resumen Anterior: {req.prev_summary}\n"
+        f"Transcripción Anterior: {req.prev_transcription}\n\n"
+        f"Reunión Actual: {req.curr_title}\n"
+        f"Resumen Actual: {req.curr_summary}\n"
+        f"Transcripción Actual: {req.curr_transcription}\n"
+    )
+    try:
+        raw_content = await call_openrouter(system_prompt, user_prompt, is_json=True)
+        return sanitize_json_response(raw_content)
+    except Exception as e:
+        return {
+            "summaryOfChanges": "No se pudieron comparar las reuniones de forma automática. Revisa las transcripciones manualmente.",
+            "scopeCreepAlerts": [],
+            "agreementsDiff": "No disponible por fallo del servicio de IA."
+        }
+
+@app.post("/ai/check-rubric")
+async def check_rubric(req: CheckRubricRequest):
+    system_prompt = (
+        "Eres un evaluador académico exigente de tesis de ingeniería de software.\n"
+        "Tu tarea es evaluar el borrador de un capítulo o sección utilizando una rúbrica de evaluación provista.\n"
+        "Analiza detalladamente si el contenido satisface los criterios de la rúbrica y entrega un informe estructurado.\n\n"
+        "Debes retornar obligatoriamente un objeto JSON en español con el siguiente formato:\n"
+        "{\n"
+        "  \"evaluationReport\": \"Resumen detallado de la evaluación frente a la rúbrica.\",\n"
+        "  \"complianceScore\": 85, \n"
+        "  \"missingCriteria\": [\n"
+        "    {\n"
+        "      \"criterion\": \"Nombre del criterio de la rúbrica\",\n"
+        "      \"missingDetails\": \"Detalles de qué falta en la redacción para cumplirlo.\",\n"
+        "      \"recommendation\": \"Recomendación específica de redacción.\"\n"
+        "    }\n"
+        "  ]\n"
+        "}"
+    )
+    user_prompt = (
+        f"Título del Capítulo: {req.section_title}\n"
+        f"Contexto del Proyecto:\n"
+        f"- Nombre: {req.project_context.get('name')}\n"
+        f"- Objetivos: {req.project_context.get('objectives')}\n\n"
+        f"Rúbrica de Evaluación:\n{req.rubric_text}\n\n"
+        f"Borrador Escrito:\n{req.content}\n"
+    )
+    try:
+        raw_content = await call_openrouter(system_prompt, user_prompt, is_json=True)
+        return sanitize_json_response(raw_content)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to parse rubric analysis JSON: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

@@ -4,9 +4,10 @@ exports.deleteTask = exports.updateTask = exports.getTaskById = exports.getTasks
 const models_1 = require("../models");
 const auth_1 = require("../middleware/auth");
 const auditLogger_1 = require("../utils/auditLogger");
+const requirementStatusHelper_1 = require("../utils/requirementStatusHelper");
 const createTask = async (req, res) => {
     try {
-        const { project, title, description, assignedTo, status, dueDate, sprint } = req.body;
+        const { project, title, description, assignedTo, status, dueDate, sprint, linkedRequirements } = req.body;
         if (!project || !title) {
             return res.status(400).json({ message: 'Project and title are required' });
         }
@@ -25,6 +26,24 @@ const createTask = async (req, res) => {
             dueDate: dueDate || null,
             sprint: sprint || 'General'
         });
+        // Link requirements if provided
+        if (Array.isArray(linkedRequirements) && linkedRequirements.length > 0) {
+            for (const reqId of linkedRequirements) {
+                await models_1.TraceLink.create({
+                    project,
+                    sourceType: 'Requirement',
+                    sourceId: reqId,
+                    targetType: 'Task',
+                    targetId: task._id,
+                    linkType: 'implements',
+                    createdBy: req.user._id
+                });
+                await models_1.Requirement.findByIdAndUpdate(reqId, {
+                    $addToSet: { linkedTasks: task._id }
+                });
+                await (0, requirementStatusHelper_1.recalculateRequirementStatus)(reqId);
+            }
+        }
         const populatedTask = await task.populate('assignedTo', 'name rut');
         await (0, auditLogger_1.logAudit)(req, project, 'CREATE_TASK', 'Task', task._id.toString(), `Title: ${title}`);
         return res.status(201).json(populatedTask);
@@ -83,8 +102,52 @@ const updateTask = async (req, res) => {
         if (!isAdmin && !isEditor && !isOwner && !isAssigned) {
             return res.status(403).json({ message: 'No tienes permisos para actualizar esta tarea.' });
         }
-        Object.assign(task, req.body);
+        // Check if linkedRequirements is passed
+        const { linkedRequirements, ...taskData } = req.body;
+        Object.assign(task, taskData);
         await task.save();
+        if (Array.isArray(linkedRequirements)) {
+            // Find current TraceLinks for this task
+            const currentLinks = await models_1.TraceLink.find({
+                project: task.project,
+                targetType: 'Task',
+                targetId: task._id,
+                sourceType: 'Requirement'
+            });
+            const currentReqIds = currentLinks.map(l => l.sourceId.toString());
+            const targetReqIds = linkedRequirements.map(id => id.toString());
+            // Find to delete
+            const toDelete = currentLinks.filter(l => !targetReqIds.includes(l.sourceId.toString()));
+            for (const link of toDelete) {
+                const reqId = link.sourceId.toString();
+                await models_1.TraceLink.findByIdAndDelete(link._id);
+                await models_1.Requirement.findByIdAndUpdate(reqId, {
+                    $pull: { linkedTasks: task._id }
+                });
+                await (0, requirementStatusHelper_1.recalculateRequirementStatus)(reqId);
+            }
+            // Find to add
+            const toAdd = targetReqIds.filter(id => !currentReqIds.includes(id));
+            for (const reqId of toAdd) {
+                await models_1.TraceLink.create({
+                    project: task.project,
+                    sourceType: 'Requirement',
+                    sourceId: reqId,
+                    targetType: 'Task',
+                    targetId: task._id,
+                    linkType: 'implements',
+                    createdBy: req.user._id
+                });
+                await models_1.Requirement.findByIdAndUpdate(reqId, {
+                    $addToSet: { linkedTasks: task._id }
+                });
+                await (0, requirementStatusHelper_1.recalculateRequirementStatus)(reqId);
+            }
+        }
+        else {
+            // Recalculate linked requirement states
+            await (0, requirementStatusHelper_1.recalculateRequirementsForTask)(task._id.toString());
+        }
         const populatedTask = await task.populate('assignedTo', 'name rut');
         await (0, auditLogger_1.logAudit)(req, task.project.toString(), 'UPDATE_TASK', 'Task', task._id.toString(), `Title: ${task.title}, Status: ${task.status}`);
         return res.json(populatedTask);
@@ -106,7 +169,35 @@ const deleteTask = async (req, res) => {
         if (!isAdmin && !isOwner) {
             return res.status(403).json({ message: 'Solo el administrador del proyecto o el creador de la tarea pueden eliminarla.' });
         }
+        // Find and delete trace links, updating requirements
+        const links = await models_1.TraceLink.find({
+            project: task.project,
+            $or: [
+                { sourceType: 'Task', sourceId: task._id },
+                { targetType: 'Task', targetId: task._id }
+            ]
+        });
+        for (const link of links) {
+            const isSourceReq = link.sourceType === 'Requirement';
+            const isTargetReq = link.targetType === 'Requirement';
+            const reqId = isSourceReq ? link.sourceId : isTargetReq ? link.targetId : null;
+            if (reqId) {
+                await models_1.Requirement.findByIdAndUpdate(reqId, {
+                    $pull: { linkedTasks: task._id }
+                });
+            }
+            await models_1.TraceLink.findByIdAndDelete(link._id);
+        }
         await models_1.Task.findByIdAndDelete(req.params.id);
+        // Recalculate status for all affected requirements
+        for (const link of links) {
+            const isSourceReq = link.sourceType === 'Requirement';
+            const isTargetReq = link.targetType === 'Requirement';
+            const reqId = isSourceReq ? link.sourceId : isTargetReq ? link.targetId : null;
+            if (reqId) {
+                await (0, requirementStatusHelper_1.recalculateRequirementStatus)(reqId.toString());
+            }
+        }
         await (0, auditLogger_1.logAudit)(req, task.project.toString(), 'DELETE_TASK', 'Task', task._id.toString(), `Title: ${task.title}`);
         return res.json({ message: 'Task deleted successfully' });
     }

@@ -4,7 +4,25 @@ export interface UserProfile {
   _id: string;
   name: string;
   rut: string;
-  role: 'Admin' | 'Editor' | 'Viewer' | 'Creador';
+  role: 'Admin' | 'Editor' | 'Viewer' | 'Creador' | 'Docente' | 'Evaluador' | 'Coordinador';
+  email?: string;
+  career?: string;
+  biography?: string;
+  interests?: string[];
+  skills?: string[];
+  availability?: string;
+  preferences?: {
+    theme: 'light' | 'dark';
+    language: 'es' | 'en';
+    density: 'compact' | 'normal';
+  };
+  notificationSettings?: {
+    comments: 'immediate' | 'daily' | 'weekly' | 'app' | 'disabled';
+    evaluations: 'immediate' | 'daily' | 'weekly' | 'app';
+    milestones: 'immediate' | 'daily' | 'weekly' | 'app';
+    meetings: 'immediate' | 'daily' | 'weekly' | 'app' | 'disabled';
+    security: 'immediate' | 'daily' | 'weekly' | 'app';
+  };
 }
 
 interface AuthState {
@@ -15,6 +33,7 @@ interface AuthState {
   error: string | null;
   login: (rut: string, password: string) => Promise<boolean>;
   register: (name: string, rut: string, password: string) => Promise<boolean>;
+  activate: (rut: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   fetchProfile: () => Promise<void>;
   initializeSession: () => Promise<boolean>;
@@ -77,6 +96,36 @@ export const useAuthStore = create<AuthState>((set, get) => {
 
         if (!response.ok) {
           throw new Error(data.message || 'Registro fallido');
+        }
+
+        localStorage.setItem('tf_user', JSON.stringify(data.user));
+
+        set({
+          token: data.accessToken,
+          user: data.user,
+          isAuthenticated: true,
+          isLoading: false
+        });
+        return true;
+      } catch (err: any) {
+        set({ error: err.message, isLoading: false });
+        return false;
+      }
+    },
+
+    activate: async (rut, password) => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await fetch(`${API_URL}/auth/activate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rut, password }),
+          credentials: 'include'
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || 'Activación fallida');
         }
 
         localStorage.setItem('tf_user', JSON.stringify(data.user));

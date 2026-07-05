@@ -15,4 +15,5 @@ router.post('/:id/version', upload.single('file'), (0, auth_1.checkProjectPermis
 router.patch('/:id/freeze', (0, auth_1.checkProjectPermission)(['Admin']), deliverableController_1.freezeDeliverable);
 router.get('/project/:projectId', (0, auth_1.checkProjectPermission)(['Admin', 'Editor', 'Viewer']), deliverableController_1.getProjectDeliverables);
 router.get('/:id/download/:versionNumber', (0, auth_1.checkProjectPermission)(['Admin', 'Editor', 'Viewer']), deliverableController_1.downloadVersion);
+router.post('/:id/version/:versionNumber/approve', (0, auth_1.checkProjectPermission)(['Admin', 'Editor', 'Viewer']), deliverableController_1.approveDeliverableVersion);
 exports.default = router;

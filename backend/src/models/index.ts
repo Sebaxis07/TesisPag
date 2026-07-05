@@ -5,16 +5,54 @@ export interface IUser extends MongooseDocument {
   name: string;
   rut: string;
   passwordHash: string;
-  role: 'Admin' | 'Editor' | 'Viewer' | 'Creador';
+  role: 'Admin' | 'Editor' | 'Viewer' | 'Creador' | 'Docente' | 'Evaluador' | 'Coordinador';
+  isActivated: boolean;
   assignedProjects: Schema.Types.ObjectId[];
+  email?: string;
+  career?: string;
+  biography?: string;
+  interests?: string[];
+  skills?: string[];
+  availability?: string;
+  preferences?: {
+    theme: 'light' | 'dark';
+    language: 'es' | 'en';
+    density: 'compact' | 'normal';
+  };
+  notificationSettings?: {
+    comments: 'immediate' | 'daily' | 'weekly' | 'app' | 'disabled';
+    evaluations: 'immediate' | 'daily' | 'weekly' | 'app';
+    milestones: 'immediate' | 'daily' | 'weekly' | 'app';
+    meetings: 'immediate' | 'daily' | 'weekly' | 'app' | 'disabled';
+    security: 'immediate' | 'daily' | 'weekly' | 'app';
+  };
 }
 
 const UserSchema = new Schema<IUser>({
   name: { type: String, required: true },
   rut: { type: String, required: true, unique: true, index: true },
   passwordHash: { type: String, required: true },
-  role: { type: String, enum: ['Admin', 'Editor', 'Viewer', 'Creador'], default: 'Viewer' },
-  assignedProjects: [{ type: Schema.Types.ObjectId, ref: 'Project' }]
+  role: { type: String, enum: ['Admin', 'Editor', 'Viewer', 'Creador', 'Docente', 'Evaluador', 'Coordinador'], default: 'Viewer' },
+  isActivated: { type: Boolean, default: false },
+  assignedProjects: [{ type: Schema.Types.ObjectId, ref: 'Project' }],
+  email: { type: String, default: '' },
+  career: { type: String, default: '' },
+  biography: { type: String, default: '' },
+  interests: [{ type: String }],
+  skills: [{ type: String }],
+  availability: { type: String, default: '' },
+  preferences: {
+    theme: { type: String, enum: ['light', 'dark'], default: 'light' },
+    language: { type: String, enum: ['es', 'en'], default: 'es' },
+    density: { type: String, enum: ['compact', 'normal'], default: 'normal' }
+  },
+  notificationSettings: {
+    comments: { type: String, enum: ['immediate', 'daily', 'weekly', 'app', 'disabled'], default: 'app' },
+    evaluations: { type: String, enum: ['immediate', 'daily', 'weekly', 'app'], default: 'immediate' },
+    milestones: { type: String, enum: ['immediate', 'daily', 'weekly', 'app'], default: 'immediate' },
+    meetings: { type: String, enum: ['immediate', 'daily', 'weekly', 'app', 'disabled'], default: 'daily' },
+    security: { type: String, enum: ['immediate', 'daily', 'weekly', 'app'], default: 'immediate' }
+  }
 }, { timestamps: true });
 
 export const User = model<IUser>('User', UserSchema);
@@ -76,6 +114,51 @@ export interface IMeeting extends MongooseDocument {
   agreements: string[];
   tasks: string[];
   risks: string[];
+
+  // New fields:
+  participants: Array<{ name: string; role?: string; email?: string }>;
+  rawTranscript?: string;
+  notes?: string;
+  aiSummary?: string;
+  agenda?: string;
+
+  extractedActions?: Array<{
+    title: string;
+    description?: string;
+    ownerName?: string;
+    dueDate?: Date;
+    priority?: 'Low' | 'Medium' | 'High';
+    confidence?: number;
+    accepted?: boolean;
+    convertedTaskId?: Schema.Types.ObjectId;
+  }>;
+
+  extractedRequirements?: Array<{
+    type: 'Functional' | 'NonFunctional';
+    text: string;
+    confidence?: number;
+    accepted?: boolean;
+    convertedRequirementId?: Schema.Types.ObjectId;
+  }>;
+
+  extractedDecisions?: Array<{
+    text: string;
+    accepted?: boolean;
+    convertedToADR?: boolean;
+    convertedADRId?: Schema.Types.ObjectId;
+  }>;
+
+  extractedRisks?: Array<{
+    text: string;
+    severity?: 'Low' | 'Medium' | 'High';
+    accepted?: boolean;
+  }>;
+
+  followUpDate?: Date;
+  status: 'Draft' | 'Analyzed' | 'Validated' | 'Published';
+
+  advisorApprovalStatus?: 'Pending' | 'Conforme' | 'Observada' | 'Pendiente de Ajuste';
+  advisorApprovalFeedback?: string;
 }
 
 const MeetingSchema = new Schema<IMeeting>({
@@ -87,7 +170,55 @@ const MeetingSchema = new Schema<IMeeting>({
   summary: { type: String, default: '' },
   agreements: [{ type: String }],
   tasks: [{ type: String }],
-  risks: [{ type: String }]
+  risks: [{ type: String }],
+
+  // New fields:
+  participants: [{
+    name: { type: String, required: true },
+    role: { type: String },
+    email: { type: String }
+  }],
+  rawTranscript: { type: String, default: '' },
+  notes: { type: String, default: '' },
+  aiSummary: { type: String, default: '' },
+  agenda: { type: String, default: '' },
+
+  extractedActions: [{
+    title: { type: String, required: true },
+    description: { type: String, default: '' },
+    ownerName: { type: String, default: 'Sin definir' },
+    dueDate: { type: Date, default: null },
+    priority: { type: String, enum: ['Low', 'Medium', 'High'], default: 'Medium' },
+    confidence: { type: Number, default: 1.0 },
+    accepted: { type: Boolean, default: false },
+    convertedTaskId: { type: Schema.Types.ObjectId, ref: 'Task', default: null }
+  }],
+
+  extractedRequirements: [{
+    type: { type: String, enum: ['Functional', 'NonFunctional'], required: true },
+    text: { type: String, required: true },
+    confidence: { type: Number, default: 1.0 },
+    accepted: { type: Boolean, default: false },
+    convertedRequirementId: { type: Schema.Types.ObjectId, ref: 'Requirement', default: null }
+  }],
+
+  extractedDecisions: [{
+    text: { type: String, required: true },
+    accepted: { type: Boolean, default: false },
+    convertedToADR: { type: Boolean, default: false },
+    convertedADRId: { type: Schema.Types.ObjectId, ref: 'ADRDecision', default: null }
+  }],
+
+  extractedRisks: [{
+    text: { type: String, required: true },
+    severity: { type: String, enum: ['Low', 'Medium', 'High'], default: 'Medium' },
+    accepted: { type: Boolean, default: false }
+  }],
+
+  followUpDate: { type: Date, default: null },
+  status: { type: String, enum: ['Draft', 'Analyzed', 'Validated', 'Published'], default: 'Draft' },
+  advisorApprovalStatus: { type: String, enum: ['Pending', 'Conforme', 'Observada', 'Pendiente de Ajuste'], default: 'Pending' },
+  advisorApprovalFeedback: { type: String, default: '' }
 }, { timestamps: true });
 
 export const Meeting = model<IMeeting>('Meeting', MeetingSchema);
@@ -99,10 +230,36 @@ export interface IRequirement extends MongooseDocument {
   code: string; // e.g., RF-01, RN-02
   title: string;
   description: string;
-  type: 'Functional' | 'Non-Functional';
-  priority: 'High' | 'Medium' | 'Low';
-  status: 'Draft' | 'Approved' | 'In-Progress' | 'Completed';
+  type: 'Functional' | 'Non-Functional' | 'NonFunctional' | 'Business' | 'Constraint';
+  priority: 'Low' | 'Medium' | 'High' | 'Critical';
+  status: 'Draft' | 'Under Review' | 'Approved Baseline' | 'Needs Adjustment' | 'Obsolete';
+  advisorFeedback?: string;
   source: string; // e.g., "Reunión 28/06", "Sebastian Vasquez"
+
+  methodologyTypeSnapshot?: string;
+  workflowStatus?: string;
+  sprintRef?: string;
+  phaseRef?: string;
+  iterationRef?: string;
+  prototypeVersionRef?: string;
+
+  linkedTasks: Schema.Types.ObjectId[];
+  linkedMeetings: Schema.Types.ObjectId[];
+  linkedADRs: Schema.Types.ObjectId[];
+  linkedDeliverables: Schema.Types.ObjectId[];
+  linkedTests: Array<{
+    title: string;
+    description?: string;
+    status?: 'Pending' | 'Passed' | 'Failed';
+  }>;
+  version: number;
+  sourceType?: 'meeting' | 'document' | 'manual' | 'rag' | 'template';
+  sourceRef?: Schema.Types.ObjectId;
+
+  // Governance / Approval
+  approvalStatus?: 'Draft' | 'Pending' | 'Approved' | 'Rejected';
+  approvedBy?: Schema.Types.ObjectId;
+  approvedAt?: Date;
 }
 
 const RequirementSchema = new Schema<IRequirement>({
@@ -111,10 +268,35 @@ const RequirementSchema = new Schema<IRequirement>({
   code: { type: String, required: true },
   title: { type: String, required: true },
   description: { type: String, default: '' },
-  type: { type: String, enum: ['Functional', 'Non-Functional'], required: true },
-  priority: { type: String, enum: ['High', 'Medium', 'Low'], default: 'Medium' },
-  status: { type: String, enum: ['Draft', 'Approved', 'In-Progress', 'Completed'], default: 'Draft' },
-  source: { type: String, default: 'Manual' }
+  type: { type: String, enum: ['Functional', 'Non-Functional', 'NonFunctional', 'Business', 'Constraint'], required: true },
+  priority: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Medium' },
+  status: { type: String, enum: ['Draft', 'Under Review', 'Approved Baseline', 'Needs Adjustment', 'Obsolete'], default: 'Draft' },
+  advisorFeedback: { type: String, default: '' },
+  source: { type: String, default: 'Manual' },
+
+  methodologyTypeSnapshot: { type: String, default: 'scrum' },
+  workflowStatus: { type: String, default: 'Backlog' },
+  sprintRef: { type: String, default: '' },
+  phaseRef: { type: String, default: '' },
+  iterationRef: { type: String, default: '' },
+  prototypeVersionRef: { type: String, default: '' },
+
+  linkedTasks: [{ type: Schema.Types.ObjectId, ref: 'Task' }],
+  linkedMeetings: [{ type: Schema.Types.ObjectId, ref: 'Meeting' }],
+  linkedADRs: [{ type: Schema.Types.ObjectId, ref: 'ADRDecision' }],
+  linkedDeliverables: [{ type: Schema.Types.ObjectId, ref: 'Deliverable' }],
+  linkedTests: [{
+    title: { type: String, required: true },
+    description: { type: String, default: '' },
+    status: { type: String, enum: ['Pending', 'Passed', 'Failed'], default: 'Pending' }
+  }],
+  version: { type: Number, default: 1 },
+  sourceType: { type: String, enum: ['meeting', 'document', 'manual', 'rag', 'template'], default: 'manual' },
+  sourceRef: { type: Schema.Types.ObjectId },
+
+  approvalStatus: { type: String, enum: ['Draft', 'Pending', 'Approved', 'Rejected'], default: 'Draft' },
+  approvedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+  approvedAt: { type: Date }
 }, { timestamps: true });
 
 export const Requirement = model<IRequirement>('Requirement', RequirementSchema);
@@ -138,6 +320,10 @@ export interface IADRDecision extends MongooseDocument {
   currentApprovals: number;
   finalDecisionNote?: string;
   supersededBy?: Schema.Types.ObjectId;
+  affectedRequirements?: string[];
+  affectedStack?: string[];
+  advisorFeedback?: string;
+  isCriticalDecision?: boolean;
 }
 
 const ADRDecisionSchema = new Schema<IADRDecision>({
@@ -161,7 +347,11 @@ const ADRDecisionSchema = new Schema<IADRDecision>({
   requiredApprovals: { type: Number, default: 2 },
   currentApprovals: { type: Number, default: 0 },
   finalDecisionNote: { type: String },
-  supersededBy: { type: Schema.Types.ObjectId, ref: 'ADRDecision' }
+  supersededBy: { type: Schema.Types.ObjectId, ref: 'ADRDecision' },
+  affectedRequirements: { type: [String], default: [] },
+  affectedStack: { type: [String], default: [] },
+  advisorFeedback: { type: String, default: '' },
+  isCriticalDecision: { type: Boolean, default: false }
 }, { timestamps: true });
 
 export const ADRDecision = model<IADRDecision>('ADRDecision', ADRDecisionSchema);
@@ -210,6 +400,32 @@ const NotificationSchema = new Schema<INotification>({
 
 export const Notification = model<INotification>('Notification', NotificationSchema);
 
+// 6d. NOTIFICATION QUEUE (For email digests)
+export interface INotificationQueue extends MongooseDocument {
+  user: Schema.Types.ObjectId;
+  project: Schema.Types.ObjectId;
+  category: 'comments' | 'evaluations' | 'milestones' | 'meetings' | 'security';
+  title: string;
+  message: string;
+  link?: string;
+  frequency: 'daily' | 'weekly';
+  isProcessed: boolean;
+  createdAt: Date;
+}
+
+const NotificationQueueSchema = new Schema<INotificationQueue>({
+  user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  project: { type: Schema.Types.ObjectId, ref: 'Project', required: true },
+  category: { type: String, enum: ['comments', 'evaluations', 'milestones', 'meetings', 'security'], required: true },
+  title: { type: String, required: true },
+  message: { type: String, required: true },
+  link: { type: String },
+  frequency: { type: String, enum: ['daily', 'weekly'], required: true },
+  isProcessed: { type: Boolean, default: false }
+}, { timestamps: true });
+
+export const NotificationQueue = model<INotificationQueue>('NotificationQueue', NotificationQueueSchema);
+
 // 7. DIAGRAM
 export interface IDiagram extends MongooseDocument {
   project: Schema.Types.ObjectId;
@@ -257,14 +473,45 @@ const TaskSchema = new Schema<ITask>({
 export const Task = model<ITask>('Task', TaskSchema);
 
 // 9. DOCUMENT / REPORT
+export interface IDocumentVersion {
+  versionNumber: number;
+  content: string;
+  commitMessage: string;
+  updatedBy: Schema.Types.ObjectId;
+  createdAt: Date;
+}
+
+export interface IParagraphEvidence {
+  paragraphId: string;
+  sourceType: 'Meeting' | 'Requirement' | 'ADRDecision' | 'SourceDocument' | 'Task';
+  sourceId: Schema.Types.ObjectId;
+  matchedText: string;
+  confidence: number;
+}
+
+export interface ICitation {
+  citationKey: string;
+  sourceType: 'ExternalPDF' | 'InternalArtifact';
+  sourceId?: Schema.Types.ObjectId;
+  bibtexData?: string;
+  citationString: string;
+}
+
 export interface IDocument extends MongooseDocument {
   project: Schema.Types.ObjectId;
   owner: Schema.Types.ObjectId;
   title: string;
   templateType: string; // e.g. 'Capítulo 1: Introducción', 'Propuesta Técnica', 'Plan de Proyecto'
   content: string; // markdown content
-  status: 'Draft' | 'Final';
+  status: 'Draft' | 'InReview' | 'Approved' | 'Frozen';
   exportedPdfPath: string;
+  level: number;
+  parentSection: Schema.Types.ObjectId | null;
+  order: number;
+  assignedTo: Schema.Types.ObjectId | null;
+  versions: IDocumentVersion[];
+  evidence: IParagraphEvidence[];
+  citations: ICitation[];
 }
 
 const DocumentSchema = new Schema<IDocument>({
@@ -273,8 +520,33 @@ const DocumentSchema = new Schema<IDocument>({
   title: { type: String, required: true },
   templateType: { type: String, default: 'Personalizada' },
   content: { type: String, default: '' },
-  status: { type: String, enum: ['Draft', 'Final'], default: 'Draft' },
-  exportedPdfPath: { type: String, default: '' }
+  status: { type: String, enum: ['Draft', 'InReview', 'Approved', 'Frozen'], default: 'Draft' },
+  exportedPdfPath: { type: String, default: '' },
+  level: { type: Number, default: 1 },
+  parentSection: { type: Schema.Types.ObjectId, ref: 'Document', default: null },
+  order: { type: Number, default: 0 },
+  assignedTo: { type: Schema.Types.ObjectId, ref: 'User', default: null },
+  versions: [{
+    versionNumber: { type: Number, required: true },
+    content: { type: String, required: true },
+    commitMessage: { type: String, default: '' },
+    updatedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    createdAt: { type: Date, default: Date.now }
+  }],
+  evidence: [{
+    paragraphId: { type: String, required: true },
+    sourceType: { type: String, enum: ['Meeting', 'Requirement', 'ADRDecision', 'SourceDocument', 'Task'], required: true },
+    sourceId: { type: Schema.Types.ObjectId, required: true },
+    matchedText: { type: String, default: '' },
+    confidence: { type: Number, default: 1.0 }
+  }],
+  citations: [{
+    citationKey: { type: String, required: true },
+    sourceType: { type: String, enum: ['ExternalPDF', 'InternalArtifact'], required: true },
+    sourceId: { type: Schema.Types.ObjectId },
+    bibtexData: { type: String, default: '' },
+    citationString: { type: String, required: true }
+  }]
 }, { timestamps: true });
 
 export const Document = model<IDocument>('Document', DocumentSchema);
@@ -501,6 +773,8 @@ export interface IDeliverable extends MongooseDocument {
     uploadedBy: Schema.Types.ObjectId;
     uploadedByName: string;
     createdAt: Date;
+    advisorApprovalStatus?: 'Pending' | 'Approved' | 'ChangesRequested';
+    advisorApprovalFeedback?: string;
   }>;
   createdAt: Date;
   updatedAt: Date;
@@ -525,7 +799,9 @@ const DeliverableSchema = new Schema<IDeliverable>({
     comment: { type: String, default: '' },
     uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     uploadedByName: { type: String, required: true },
-    createdAt: { type: Date, default: Date.now }
+    createdAt: { type: Date, default: Date.now },
+    advisorApprovalStatus: { type: String, enum: ['Pending', 'Approved', 'ChangesRequested'], default: 'Pending' },
+    advisorApprovalFeedback: { type: String, default: '' }
   }]
 }, { timestamps: true });
 
@@ -584,4 +860,198 @@ const ApprovalSchema = new Schema<IApproval>({
 ApprovalSchema.index({ project: 1, itemType: 1, itemId: 1 });
 
 export const Approval = model<IApproval>('Approval', ApprovalSchema);
+
+// 18. PROJECT PROPOSAL
+export interface IProjectProposal extends MongooseDocument {
+  project?: Schema.Types.ObjectId;
+  student: Schema.Types.ObjectId;
+  studentName: string;
+  title: string;
+  problem: string;
+  justification: string;
+  generalObjective: string;
+  specificObjectives: string[];
+  contextInstitutional: string;
+  scope: string;
+  risks: string[];
+  tentativeStack: string[];
+  assignedAdvisor?: Schema.Types.ObjectId;
+  assignedAdvisorName?: string;
+  status: 'Draft' | 'Submitted' | 'InReview' | 'ChangesRequested' | 'Approved' | 'Rejected';
+  feedback?: string;
+  proposalFileUrl?: string;
+  submittedAt?: Date;
+  reviewedAt?: Date;
+}
+
+const ProjectProposalSchema = new Schema<IProjectProposal>({
+  project: { type: Schema.Types.ObjectId, ref: 'Project' },
+  student: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  studentName: { type: String, required: true },
+  title: { type: String, required: true },
+  problem: { type: String, default: '' },
+  justification: { type: String, default: '' },
+  generalObjective: { type: String, default: '' },
+  specificObjectives: [{ type: String }],
+  contextInstitutional: { type: String, default: '' },
+  scope: { type: String, default: '' },
+  risks: [{ type: String }],
+  tentativeStack: [{ type: String }],
+  assignedAdvisor: { type: Schema.Types.ObjectId, ref: 'User' },
+  assignedAdvisorName: { type: String },
+  status: { 
+    type: String, 
+    enum: ['Draft', 'Submitted', 'InReview', 'ChangesRequested', 'Approved', 'Rejected'], 
+    default: 'Draft',
+    required: true 
+  },
+  feedback: { type: String, default: '' },
+  proposalFileUrl: { type: String, default: '' },
+  submittedAt: { type: Date },
+  reviewedAt: { type: Date }
+}, { timestamps: true });
+
+export const ProjectProposal = model<IProjectProposal>('ProjectProposal', ProjectProposalSchema);
+
+// 19. DOCUMENT REVIEW (Versions and Signatures)
+export interface IDocumentReview extends MongooseDocument {
+  project: Schema.Types.ObjectId;
+  itemType: 'Proposal' | 'Chapter' | 'Deliverable' | 'FinalReport' | 'Defense';
+  itemId: string; // references Document ID, Deliverable ID, Proposal ID, etc.
+  itemTitle: string;
+  version: number;
+  status: 'Draft' | 'Submitted' | 'InReview' | 'ChangesRequested' | 'Approved' | 'Rejected' | 'Archived';
+  requestedBy: Schema.Types.ObjectId;
+  requestedByName: string;
+  reviewer: Schema.Types.ObjectId;
+  reviewerName: string;
+  reviewerSignature?: string; // crypto hash or simple ID metadata signature
+  observations?: string;
+  submittedAt?: Date;
+  reviewedAt?: Date;
+}
+
+const DocumentReviewSchema = new Schema<IDocumentReview>({
+  project: { type: Schema.Types.ObjectId, ref: 'Project', required: true },
+  itemType: { 
+    type: String, 
+    enum: ['Proposal', 'Chapter', 'Deliverable', 'FinalReport', 'Defense'], 
+    required: true 
+  },
+  itemId: { type: String, required: true },
+  itemTitle: { type: String, required: true },
+  version: { type: Number, default: 1 },
+  status: { 
+    type: String, 
+    enum: ['Draft', 'Submitted', 'InReview', 'ChangesRequested', 'Approved', 'Rejected', 'Archived'], 
+    default: 'Submitted',
+    required: true 
+  },
+  requestedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  requestedByName: { type: String, required: true },
+  reviewer: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  reviewerName: { type: String, required: true },
+  reviewerSignature: { type: String, default: '' },
+  observations: { type: String, default: '' },
+  submittedAt: { type: Date, default: Date.now },
+  reviewedAt: { type: Date }
+}, { timestamps: true });
+
+export const DocumentReview = model<IDocumentReview>('DocumentReview', DocumentReviewSchema);
+
+// 20. EVALUATION RUBRIC (Templates)
+export interface IEvaluationRubric extends MongooseDocument {
+  name: string; // e.g. "Pauta Propuesta", "Pauta Final"
+  description?: string;
+  evaluationType: 'grupal' | 'individual' | 'mixta';
+  criteria: Array<{
+    _id?: Schema.Types.ObjectId;
+    name: string;
+    description: string;
+    weight: number; // percentage or relative weight
+    dimension: string; // e.g. "Metodología", "Escritura", "Trazabilidad"
+    levels?: Array<{
+      name: string; // e.g. "Insuficiente", "Excelente"
+      points: number; // e.g. 1 to 5
+      description?: string;
+    }>;
+  }>;
+  isActive: boolean;
+}
+
+const EvaluationRubricSchema = new Schema<IEvaluationRubric>({
+  name: { type: String, required: true, unique: true },
+  description: { type: String, default: '' },
+  evaluationType: { type: String, enum: ['grupal', 'individual', 'mixta'], default: 'grupal', required: true },
+  criteria: [{
+    name: { type: String, required: true },
+    description: { type: String, default: '' },
+    weight: { type: Number, default: 1 },
+    dimension: { type: String, default: 'General' },
+    levels: [{
+      name: { type: String, required: true },
+      points: { type: Number, required: true },
+      description: { type: String, default: '' }
+    }]
+  }],
+  isActive: { type: Boolean, default: true }
+}, { timestamps: true });
+
+export const EvaluationRubric = model<IEvaluationRubric>('EvaluationRubric', EvaluationRubricSchema);
+
+// 21. PROJECT EVALUATION (Grades mapped 1 to 5)
+export interface IProjectEvaluation extends MongooseDocument {
+  project: Schema.Types.ObjectId;
+  rubric: Schema.Types.ObjectId;
+  rubricName: string;
+  evaluator: Schema.Types.ObjectId;
+  evaluatorName: string;
+  evaluationType: 'grupal' | 'individual' | 'mixta';
+  targetType: 'Team' | 'Student';
+  studentTarget?: Schema.Types.ObjectId;
+  studentTargetName?: string;
+  grades: Array<{
+    criterionId: string;
+    criterionName: string;
+    score: number; // 1 to 5
+    comment?: string;
+  }>;
+  generalFeedback?: string;
+  evidenceLinks?: Array<{
+    entityType: 'Deliverable' | 'Meeting' | 'Task' | 'Comment' | 'Document' | 'Other';
+    entityId: string;
+    label: string;
+  }>;
+  status: 'Draft' | 'Published';
+  totalScore: number; // Computed score
+}
+
+const ProjectEvaluationSchema = new Schema<IProjectEvaluation>({
+  project: { type: Schema.Types.ObjectId, ref: 'Project', required: true },
+  rubric: { type: Schema.Types.ObjectId, ref: 'EvaluationRubric', required: true },
+  rubricName: { type: String, required: true },
+  evaluator: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+  evaluatorName: { type: String, required: true },
+  evaluationType: { type: String, enum: ['grupal', 'individual', 'mixta'], default: 'grupal', required: true },
+  targetType: { type: String, enum: ['Team', 'Student'], default: 'Team', required: true },
+  studentTarget: { type: Schema.Types.ObjectId, ref: 'User' },
+  studentTargetName: { type: String },
+  grades: [{
+    criterionId: { type: String, required: true },
+    criterionName: { type: String, required: true },
+    score: { type: Number, required: true, min: 1, max: 5 },
+    comment: { type: String, default: '' }
+  }],
+  generalFeedback: { type: String, default: '' },
+  evidenceLinks: [{
+    entityType: { type: String, enum: ['Deliverable', 'Meeting', 'Task', 'Comment', 'Document', 'Other'], default: 'Other' },
+    entityId: { type: String, required: true },
+    label: { type: String, required: true }
+  }],
+  status: { type: String, enum: ['Draft', 'Published'], default: 'Draft', required: true },
+  totalScore: { type: Number, default: 0 }
+}, { timestamps: true });
+
+export const ProjectEvaluation = model<IProjectEvaluation>('ProjectEvaluation', ProjectEvaluationSchema);
+
 

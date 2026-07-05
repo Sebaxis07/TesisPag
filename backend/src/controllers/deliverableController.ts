@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { Deliverable, TeamMember, Notification } from '../models';
-import { ProjectAuthRequest } from '../middleware/auth';
+import { notifyUser } from '../utils/notificationHelper';
+import { AuthRequest, ProjectAuthRequest } from '../middleware/auth';
 import { logAudit } from '../utils/auditLogger';
 import fs from 'fs';
 import path from 'path';
@@ -20,12 +21,13 @@ export const createDeliverable = async (req: ProjectAuthRequest, res: Response) 
       return res.status(400).json({ message: 'El proyecto, nombre y fecha límite son obligatorios.' });
     }
 
+    const isTeacherOrAdmin = ['Docente', 'Coordinador', 'Admin'].includes(req.user.role);
     const member = await TeamMember.findOne({ project, user: req.user._id });
-    if (!member) {
+    if (!member && !isTeacherOrAdmin) {
       return res.status(403).json({ message: 'No eres miembro de este proyecto.' });
     }
 
-    if (member.role !== 'Admin' && member.role !== 'Editor') {
+    if (member && member.role !== 'Admin' && member.role !== 'Editor' && !isTeacherOrAdmin) {
       return res.status(403).json({ message: 'Solo los Administradores o Editores pueden crear entregables.' });
     }
 
@@ -73,12 +75,13 @@ export const uploadVersion = async (req: ProjectAuthRequest, res: Response) => {
       return res.status(400).json({ message: 'Este entregable está finalizado (congelado) y no acepta más versiones.' });
     }
 
+    const isTeacherOrAdmin = ['Docente', 'Coordinador', 'Admin'].includes(req.user.role);
     const member = await TeamMember.findOne({ project: deliverable.project, user: req.user._id });
-    if (!member) {
+    if (!member && !isTeacherOrAdmin) {
       return res.status(403).json({ message: 'No eres miembro de este proyecto.' });
     }
 
-    if (member.role !== 'Admin' && member.role !== 'Editor') {
+    if (member && member.role !== 'Admin' && member.role !== 'Editor' && !isTeacherOrAdmin) {
       return res.status(403).json({ message: 'Solo Administradores o Editores pueden subir versiones.' });
     }
 
@@ -106,13 +109,14 @@ export const uploadVersion = async (req: ProjectAuthRequest, res: Response) => {
     const projectMembers = await TeamMember.find({ project: deliverable.project });
     for (const pm of projectMembers) {
       if (pm.user.toString() !== req.user._id.toString()) {
-        await Notification.create({
-          user: pm.user,
-          project: deliverable.project,
-          message: `Se subió la Versión ${nextVer} para el entregable "${deliverable.name}" por ${req.user.name}.`,
-          link: '/entregables',
-          isRead: false
-        });
+        await notifyUser(
+          pm.user,
+          deliverable.project,
+          'milestones',
+          'Nueva versión de entregable',
+          `Se subió la Versión ${nextVer} para el entregable "${deliverable.name}" por ${req.user.name}.`,
+          '/entregables'
+        );
       }
     }
 
@@ -140,12 +144,13 @@ export const freezeDeliverable = async (req: ProjectAuthRequest, res: Response) 
       return res.status(404).json({ message: 'Entregable no encontrado.' });
     }
 
+    const isTeacherOrAdmin = ['Docente', 'Coordinador', 'Admin'].includes(req.user.role);
     const member = await TeamMember.findOne({ project: deliverable.project, user: req.user._id });
-    if (!member) {
+    if (!member && !isTeacherOrAdmin) {
       return res.status(403).json({ message: 'No eres miembro de este proyecto.' });
     }
 
-    if (member.role !== 'Admin') {
+    if (member && member.role !== 'Admin' && !isTeacherOrAdmin) {
       return res.status(403).json({ message: 'Solo los Administradores de proyecto pueden congelar un entregable.' });
     }
 
@@ -188,8 +193,9 @@ export const downloadVersion = async (req: ProjectAuthRequest, res: Response) =>
     }
 
     // Check project member
+    const isTeacherOrAdmin = ['Docente', 'Coordinador', 'Admin'].includes(req.user.role);
     const member = await TeamMember.findOne({ project: deliverable.project, user: req.user._id });
-    if (!member) {
+    if (!member && !isTeacherOrAdmin) {
       return res.status(403).json({ message: 'Acceso denegado.' });
     }
 
@@ -205,6 +211,137 @@ export const downloadVersion = async (req: ProjectAuthRequest, res: Response) =>
     }
 
     return res.download(filePath, version.filename);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+// 6. Approve or request changes for a specific version of a deliverable
+export const approveDeliverableVersion = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const { id, versionNumber } = req.params;
+    const { advisorApprovalStatus, advisorApprovalFeedback = '' } = req.body;
+
+    if (!advisorApprovalStatus || !['Approved', 'ChangesRequested'].includes(advisorApprovalStatus)) {
+      return res.status(400).json({ message: 'El estado de aprobación debe ser "Approved" o "ChangesRequested".' });
+    }
+
+    const deliverable = await Deliverable.findById(id);
+    if (!deliverable) {
+      return res.status(404).json({ message: 'Entregable no encontrado.' });
+    }
+
+    // Check user role
+    const hasPermission = ['Docente', 'Evaluador', 'Coordinador'].includes(req.user.role);
+    if (!hasPermission) {
+      return res.status(430).json({ message: 'Solo los supervisores académicos (Docentes, Evaluadores o Coordinación) pueden realizar esta revisión.' });
+    }
+
+    const verNum = parseInt(versionNumber, 10);
+    const versionIndex = deliverable.versions.findIndex(v => v.versionNumber === verNum);
+    if (versionIndex === -1) {
+      return res.status(404).json({ message: 'Versión del entregable no encontrada.' });
+    }
+
+    // Update version approval fields
+    deliverable.versions[versionIndex].advisorApprovalStatus = advisorApprovalStatus;
+    deliverable.versions[versionIndex].advisorApprovalFeedback = advisorApprovalFeedback;
+
+    // Update overall deliverable status as well
+    if (advisorApprovalStatus === 'Approved') {
+      deliverable.status = 'Approved';
+    } else if (advisorApprovalStatus === 'ChangesRequested') {
+      deliverable.status = 'ChangesRequested';
+    }
+
+    await deliverable.save();
+
+    // Create notifications for team members
+    const projectMembers = await TeamMember.find({ project: deliverable.project });
+    for (const pm of projectMembers) {
+      if (pm.user.toString() !== req.user._id.toString()) {
+        await notifyUser(
+          pm.user,
+          deliverable.project,
+          'milestones',
+          advisorApprovalStatus === 'Approved' ? 'Entregable Aprobado' : 'Cambios Solicitados en Entregable',
+          `El entregable "${deliverable.name}" (Versión ${verNum}) fue revisado por ${req.user.name}: ${advisorApprovalStatus === 'Approved' ? 'Aprobado' : 'Se solicitan cambios'}.`,
+          '/entregables'
+        );
+      }
+    }
+
+    await logAudit(
+      req,
+      deliverable.project.toString(),
+      'APPROVE_DELIVERABLE_VERSION',
+      'Deliverable',
+      deliverable._id.toString(),
+      `Revisión registrada por ${req.user.name} para V${verNum} con veredicto: ${advisorApprovalStatus}`
+    );
+
+    return res.json(deliverable);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const updateDeliverable = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { name, description, dueDate, status } = req.body;
+
+    const deliverable = await Deliverable.findById(id);
+    if (!deliverable) {
+      return res.status(404).json({ message: 'Entregable no encontrado.' });
+    }
+
+    if (name) deliverable.name = name;
+    if (description !== undefined) deliverable.description = description;
+    if (dueDate) deliverable.dueDate = new Date(dueDate);
+    if (status) deliverable.status = status;
+
+    await deliverable.save();
+
+    await logAudit(
+      req,
+      deliverable.project.toString(),
+      'UPDATE_DELIVERABLE',
+      'Deliverable',
+      deliverable._id.toString(),
+      `Entregable actualizado por ${req.user.name}: ${deliverable.name}`
+    );
+
+    return res.json(deliverable);
+  } catch (error: any) {
+    return res.status(500).json({ message: error.message });
+  }
+};
+
+export const deleteDeliverable = async (req: ProjectAuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const deliverable = await Deliverable.findById(id);
+    if (!deliverable) {
+      return res.status(404).json({ message: 'Entregable no encontrado.' });
+    }
+
+    const projectId = deliverable.project.toString();
+    const name = deliverable.name;
+
+    await Deliverable.findByIdAndDelete(id);
+
+    await logAudit(
+      req,
+      projectId,
+      'DELETE_DELIVERABLE',
+      'Deliverable',
+      id,
+      `Entregable "${name}" eliminado por ${req.user.name}`
+    );
+
+    return res.json({ message: 'Entregable eliminado con éxito.' });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }

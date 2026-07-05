@@ -13,4 +13,13 @@ router.delete('/:id', reportController_1.deleteDocument);
 router.post('/:id/generate-section', reportController_1.generateReportSectionAI);
 router.post('/:id/autocomplete', reportController_1.autocompleteReportSectionAI);
 router.post('/:id/inline-suggest', reportController_1.getInlineSuggestionAI);
+// Academic workspace advanced endpoints
+router.post('/:id/commit', reportController_1.commitDocumentVersion);
+router.post('/:id/evidence/bind', reportController_1.bindParagraphEvidence);
+router.post('/:id/cite', reportController_1.citeSource);
+router.post('/:id/export/pdf', reportController_1.exportDocumentPDF);
+router.post('/:id/export/docx', reportController_1.exportDocumentDOCX);
+router.post('/:id/consistency', reportController_1.checkReportConsistency);
+router.post('/:id/critique', reportController_1.critiqueReportSection);
+router.post('/:id/check-rubric', reportController_1.evaluateReportRubric);
 exports.default = router;

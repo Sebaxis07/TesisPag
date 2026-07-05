@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateUserRole = exports.getUsers = exports.getMe = exports.logout = exports.refresh = exports.login = exports.register = void 0;
+exports.deleteUser = exports.createUser = exports.updateUserRole = exports.getUsers = exports.getMe = exports.logout = exports.refresh = exports.activate = exports.login = exports.register = void 0;
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const models_1 = require("../models");
@@ -47,7 +47,8 @@ const register = async (req, res) => {
             name,
             rut: normalizedRut,
             passwordHash,
-            role: role || 'Viewer'
+            role: role || 'Viewer',
+            isActivated: true
         });
         const accessToken = generateAccessToken(user._id.toString());
         const refreshToken = generateRefreshToken(user._id.toString());
@@ -78,6 +79,9 @@ const login = async (req, res) => {
         if (!user) {
             return res.status(401).json({ message: 'Credenciales inválidas' });
         }
+        if (user.isActivated === false) {
+            return res.status(400).json({ message: 'Tu cuenta aún no está activa. Por favor, actívala en la opción "Activar cuenta".' });
+        }
         const isMatch = await bcryptjs_1.default.compare(password, user.passwordHash);
         if (!isMatch) {
             return res.status(401).json({ message: 'Credenciales inválidas' });
@@ -100,6 +104,46 @@ const login = async (req, res) => {
     }
 };
 exports.login = login;
+const activate = async (req, res) => {
+    try {
+        const { rut, password } = req.body;
+        if (!rut || !password) {
+            return res.status(400).json({ message: 'Por favor, proporciona RUT y contraseña' });
+        }
+        if (!(0, rutHelper_1.validateRut)(rut)) {
+            return res.status(400).json({ message: 'El RUT ingresado no es válido' });
+        }
+        const normalizedRut = (0, rutHelper_1.normalizeRut)(rut);
+        const user = await models_1.User.findOne({ rut: normalizedRut });
+        if (!user) {
+            return res.status(404).json({ message: 'El RUT ingresado no está registrado en el sistema' });
+        }
+        if (user.isActivated) {
+            return res.status(400).json({ message: 'Esta cuenta ya se encuentra activa. Inicia sesión normalmente.' });
+        }
+        const salt = await bcryptjs_1.default.genSalt(10);
+        const passwordHash = await bcryptjs_1.default.hash(password, salt);
+        user.passwordHash = passwordHash;
+        user.isActivated = true;
+        await user.save();
+        const accessToken = generateAccessToken(user._id.toString());
+        const refreshToken = generateRefreshToken(user._id.toString());
+        setRefreshCookie(res, refreshToken);
+        return res.json({
+            user: {
+                _id: user._id,
+                name: user.name,
+                rut: user.rut,
+                role: user.role
+            },
+            accessToken
+        });
+    }
+    catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+exports.activate = activate;
 const refresh = async (req, res) => {
     try {
         const refreshToken = req.cookies.tf_refresh;
@@ -176,7 +220,7 @@ exports.getUsers = getUsers;
 const updateUserRole = async (req, res) => {
     try {
         const { userId, role } = req.body;
-        if (!['Admin', 'Editor', 'Viewer'].includes(role)) {
+        if (!['Admin', 'Editor', 'Viewer', 'Creador', 'Docente', 'Evaluador', 'Coordinador'].includes(role)) {
             return res.status(400).json({ message: 'Invalid role' });
         }
         const user = await models_1.User.findById(userId);
@@ -192,3 +236,64 @@ const updateUserRole = async (req, res) => {
     }
 };
 exports.updateUserRole = updateUserRole;
+const createUser = async (req, res) => {
+    try {
+        const { name, rut, password, role, isActivated } = req.body;
+        if (!name || !rut || !password || !role) {
+            return res.status(400).json({ message: 'Por favor, proporciona nombre, RUT, contraseña y rol' });
+        }
+        if (!['Admin', 'Editor', 'Viewer', 'Creador', 'Docente', 'Evaluador', 'Coordinador'].includes(role)) {
+            return res.status(400).json({ message: 'Rol inválido' });
+        }
+        if (!(0, rutHelper_1.validateRut)(rut)) {
+            return res.status(400).json({ message: 'El RUT ingresado no es válido' });
+        }
+        const normalizedRut = (0, rutHelper_1.normalizeRut)(rut);
+        const userExists = await models_1.User.findOne({ rut: normalizedRut });
+        if (userExists) {
+            return res.status(400).json({ message: 'El usuario ya existe' });
+        }
+        const salt = await bcryptjs_1.default.genSalt(10);
+        const passwordHash = await bcryptjs_1.default.hash(password, salt);
+        const user = await models_1.User.create({
+            name,
+            rut: normalizedRut,
+            passwordHash,
+            role,
+            isActivated: isActivated === undefined ? false : !!isActivated
+        });
+        return res.status(201).json({
+            message: 'Usuario creado exitosamente',
+            user: {
+                _id: user._id,
+                name: user.name,
+                rut: user.rut,
+                role: user.role,
+                isActivated: user.isActivated
+            }
+        });
+    }
+    catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+exports.createUser = createUser;
+const deleteUser = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        if (userId === req.user._id.toString()) {
+            return res.status(400).json({ message: 'No puedes eliminarte a ti mismo de la plataforma' });
+        }
+        const user = await models_1.User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ message: 'Usuario no encontrado' });
+        }
+        await models_1.User.findByIdAndDelete(userId);
+        await models_1.TeamMember.deleteMany({ user: userId });
+        return res.json({ message: 'Usuario y sus participaciones en proyectos eliminados exitosamente' });
+    }
+    catch (error) {
+        return res.status(500).json({ message: error.message });
+    }
+};
+exports.deleteUser = deleteUser;

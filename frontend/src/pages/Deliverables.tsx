@@ -24,6 +24,8 @@ interface Version {
   uploadedBy: string;
   uploadedByName: string;
   createdAt: string;
+  advisorApprovalStatus?: 'Pending' | 'Approved' | 'ChangesRequested';
+  advisorApprovalFeedback?: string;
 }
 
 interface Deliverable {
@@ -39,7 +41,7 @@ interface Deliverable {
 }
 
 export const Deliverables: React.FC = () => {
-  const { activeProject } = useProjectStore();
+  const { activeProject, members } = useProjectStore();
   const { getAuthHeaders, user } = useAuthStore();
 
   const [deliverables, setDeliverables] = useState<Deliverable[]>([]);
@@ -58,6 +60,12 @@ export const Deliverables: React.FC = () => {
   const [uploadComment, setUploadComment] = useState<string>('');
   const [uploading, setUploading] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Faculty Version Review State
+  const [showReviewModal, setShowReviewModal] = useState<boolean>(false);
+  const [reviewVerNum, setReviewVerNum] = useState<number | null>(null);
+  const [advisorStatus, setAdvisorStatus] = useState<'Approved' | 'ChangesRequested'>('Approved');
+  const [advisorFeedback, setAdvisorFeedback] = useState<string>('');
 
   const fetchDeliverables = useCallback(async () => {
     if (!activeProject) return;
@@ -224,6 +232,46 @@ export const Deliverables: React.FC = () => {
     }
   };
 
+  const handleOpenReviewModal = (verNum: number) => {
+    setReviewVerNum(verNum);
+    const existingVer = selectedDeliverable?.versions.find(v => v.versionNumber === verNum);
+    setAdvisorStatus((existingVer?.advisorApprovalStatus as any) || 'Approved');
+    setAdvisorFeedback(existingVer?.advisorApprovalFeedback || '');
+    setShowReviewModal(true);
+  };
+
+  const handleRegisterVersionReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedDeliverable || reviewVerNum === null) return;
+
+    try {
+      const headers = getAuthHeaders();
+      const res = await fetch(`http://localhost:5000/api/deliverables/${selectedDeliverable._id}/version/${reviewVerNum}/approve`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          advisorApprovalStatus: advisorStatus,
+          advisorApprovalFeedback: advisorFeedback
+        })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || 'Error al guardar la revisión');
+      }
+
+      await fetchDeliverables();
+      setShowReviewModal(false);
+      setReviewVerNum(null);
+      setAdvisorFeedback('');
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'Approved':
@@ -247,7 +295,11 @@ export const Deliverables: React.FC = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const canEdit = user?.role === 'Admin' || user?.role === 'Editor';
+  const currentMember = members.find(m => m.user?._id === user?._id);
+  const projectRole = currentMember?.role;
+  const isTeacherOrAdmin = !!(user && ['Admin', 'Docente', 'Coordinador'].includes(user.role));
+  const isStudentEditor = !!(user && (user.role === 'Creador' || user.role === 'Editor' || projectRole === 'Admin' || projectRole === 'Editor'));
+  const canEdit = isTeacherOrAdmin || isStudentEditor;
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto animate-fade-in">
@@ -347,7 +399,7 @@ export const Deliverables: React.FC = () => {
                   <h2 className="text-base font-bold text-zinc-950 mt-1">{selectedDeliverable.name}</h2>
                 </div>
                 <div className="flex items-center gap-2">
-                  {selectedDeliverable.status === 'Approved' && user?.role === 'Admin' && (
+                  {selectedDeliverable.status === 'Approved' && isTeacherOrAdmin && (
                     <button
                       onClick={() => handleFreeze(selectedDeliverable._id)}
                       className="flex items-center gap-1.5 text-xs font-bold bg-zinc-950 text-white hover:bg-zinc-800 border border-zinc-950 px-3 py-1.5 rounded-lg transition-colors"
@@ -357,7 +409,7 @@ export const Deliverables: React.FC = () => {
                       <span>Congelar</span>
                     </button>
                   )}
-                  {selectedDeliverable.status !== 'Finalized' && selectedDeliverable.versions.length > 0 && canEdit && (
+                  {selectedDeliverable.status !== 'Finalized' && selectedDeliverable.versions.length > 0 && isStudentEditor && (
                     <button
                       onClick={() => handleRequestApproval(selectedDeliverable)}
                       className="flex items-center gap-1.5 text-xs font-bold bg-emerald-600 text-white hover:bg-emerald-700 px-3 py-1.5 rounded-lg transition-colors shadow-xs"
@@ -390,48 +442,83 @@ export const Deliverables: React.FC = () => {
                   </div>
                 ) : (
                   <div className="border border-zinc-200 rounded-xl overflow-hidden shadow-xs">
-                    <table className="w-full text-left border-collapse text-xs">
-                      <thead>
-                        <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-mono text-[10px] uppercase">
-                          <th className="p-3 font-semibold">Ver.</th>
-                          <th className="p-3 font-semibold">Archivo</th>
-                          <th className="p-3 font-semibold">Subido por</th>
-                          <th className="p-3 font-semibold text-right">Tamaño</th>
-                          <th className="p-3 font-semibold text-center">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-zinc-250">
-                        {selectedDeliverable.versions.map((ver, idx) => (
-                          <tr key={idx} className="hover:bg-zinc-50/50">
-                            <td className="p-3 font-bold font-mono text-zinc-800">V{ver.versionNumber}</td>
-                            <td className="p-3">
-                              <div className="font-semibold text-zinc-900 truncate max-w-[150px]">{ver.filename}</div>
-                              {ver.comment && (
-                                <div className="text-[10px] text-zinc-400 italic mt-0.5 truncate max-w-[150px]">
-                                  "{ver.comment}"
-                                </div>
-                              )}
-                            </td>
-                            <td className="p-3">
-                              <span className="font-semibold text-zinc-800 block truncate max-w-[100px]">{ver.uploadedByName}</span>
-                              <span className="text-[9px] text-zinc-400 font-mono block">
-                                {new Date(ver.createdAt).toLocaleDateString()}
-                              </span>
-                            </td>
-                            <td className="p-3 text-right font-mono text-zinc-500">{getFileSizeString(ver.fileSize)}</td>
-                            <td className="p-3 text-center">
-                              <button
-                                onClick={() => handleDownload(selectedDeliverable._id, ver.versionNumber, ver.filename)}
-                                className="p-1.5 border border-zinc-200 hover:border-zinc-400 rounded hover:bg-zinc-100 transition-all text-zinc-600 inline-flex items-center justify-center"
-                                title="Descargar esta versión"
-                              >
-                                <Download className="w-3.5 h-3.5" />
-                              </button>
-                            </td>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-xs">
+                        <thead>
+                          <tr className="bg-zinc-50 border-b border-zinc-200 text-zinc-500 font-mono text-[10px] uppercase">
+                            <th className="p-3 font-semibold">Ver.</th>
+                            <th className="p-3 font-semibold">Archivo</th>
+                            <th className="p-3 font-semibold">Subido por</th>
+                            <th className="p-3 font-semibold text-right">Tamaño</th>
+                            <th className="p-3 font-semibold text-center">Acciones</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-zinc-250">
+                          {selectedDeliverable.versions.map((ver, idx) => (
+                            <tr key={idx} className="hover:bg-zinc-50/50">
+                              <td className="p-3 font-bold font-mono text-zinc-800">V{ver.versionNumber}</td>
+                              <td className="p-3">
+                                <div className="font-semibold text-zinc-900 truncate max-w-[200px]">{ver.filename}</div>
+                                {ver.comment && (
+                                  <div className="text-[10px] text-zinc-400 italic mt-0.5 truncate max-w-[200px]">
+                                    "{ver.comment}"
+                                  </div>
+                                )}
+                                
+                                {/* Constancia de Revisión Aprobada */}
+                                <div className="mt-2 space-y-1 bg-zinc-50 border border-zinc-200 p-2 rounded-lg text-[10px] max-w-[250px]">
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-bold text-zinc-400 uppercase tracking-wider text-[8px] font-mono">Constancia:</span>
+                                    {ver.advisorApprovalStatus === 'Approved' ? (
+                                      <span className="px-1.5 py-0.2 bg-emerald-50 text-emerald-700 border border-emerald-250 font-bold rounded uppercase text-[8px]">Conforme</span>
+                                    ) : ver.advisorApprovalStatus === 'ChangesRequested' ? (
+                                      <span className="px-1.5 py-0.2 bg-amber-50 text-amber-700 border border-amber-250 font-bold rounded uppercase text-[8px]">Observado</span>
+                                    ) : (
+                                      <span className="px-1.5 py-0.2 bg-zinc-100 text-zinc-500 border border-zinc-200 font-bold rounded uppercase text-[8px]">Pendiente</span>
+                                    )}
+                                  </div>
+                                  {ver.advisorApprovalFeedback ? (
+                                    <p className="text-zinc-650 italic mt-1 font-sans">
+                                      "{ver.advisorApprovalFeedback}"
+                                    </p>
+                                  ) : (
+                                    <p className="text-zinc-400 italic mt-1 font-sans">Sin comentarios de supervisión.</p>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="p-3">
+                                <span className="font-semibold text-zinc-800 block truncate max-w-[100px]">{ver.uploadedByName}</span>
+                                <span className="text-[9px] text-zinc-400 font-mono block">
+                                  {new Date(ver.createdAt).toLocaleDateString()}
+                                </span>
+                              </td>
+                              <td className="p-3 text-right font-mono text-zinc-500">{getFileSizeString(ver.fileSize)}</td>
+                              <td className="p-3 text-center">
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    onClick={() => handleDownload(selectedDeliverable._id, ver.versionNumber, ver.filename)}
+                                    className="p-1.5 border border-zinc-200 hover:border-zinc-400 rounded hover:bg-zinc-100 transition-all text-zinc-600 inline-flex items-center justify-center"
+                                    title="Descargar esta versión"
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                  </button>
+                                  
+                                  {(user?.role === 'Docente' || user?.role === 'Evaluador' || user?.role === 'Coordinador') && (
+                                    <button
+                                      onClick={() => handleOpenReviewModal(ver.versionNumber)}
+                                      className="px-2 py-1 bg-zinc-950 text-white hover:bg-zinc-800 rounded text-[9px] font-extrabold uppercase tracking-wider transition-all"
+                                      title="Registrar Constancia de Revisión"
+                                    >
+                                      Evaluar
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </div>
@@ -553,6 +640,79 @@ export const Deliverables: React.FC = () => {
               >
                 <Plus className="w-4 h-4" />
                 <span>Registrar Hito Entregable</span>
+              </button>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Faculty Version Review Modal */}
+      {showReviewModal && reviewVerNum !== null && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-md w-full p-6 space-y-5 animate-scale-in text-left">
+            <div className="flex justify-between items-center border-b border-zinc-100 pb-3">
+              <div>
+                <h3 className="font-extrabold text-zinc-950 text-base">Registrar Constancia de Revisión</h3>
+                <p className="text-[10px] text-zinc-400 font-mono mt-0.5">VERSIÓN V{reviewVerNum} &bull; {selectedDeliverable?.name}</p>
+              </div>
+              <button 
+                onClick={() => {
+                  setShowReviewModal(false);
+                  setReviewVerNum(null);
+                }}
+                className="text-zinc-400 hover:text-zinc-950 font-bold text-sm"
+              >
+                Cerrar
+              </button>
+            </div>
+
+            <form onSubmit={handleRegisterVersionReview} className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-semibold text-zinc-500 font-mono uppercase block">Veredicto de Supervisión</label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setAdvisorStatus('Approved')}
+                    className={`py-2 px-3 text-xs font-bold rounded-lg border flex items-center justify-center gap-1.5 transition-all ${
+                      advisorStatus === 'Approved'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300 ring-2 ring-emerald-100'
+                        : 'bg-white text-zinc-650 border-zinc-250 hover:bg-zinc-50'
+                    }`}
+                  >
+                    Conforme (Aprobar)
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAdvisorStatus('ChangesRequested')}
+                    className={`py-2 px-3 text-xs font-bold rounded-lg border flex items-center justify-center gap-1.5 transition-all ${
+                      advisorStatus === 'ChangesRequested'
+                        ? 'bg-amber-50 text-amber-850 border-amber-300 ring-2 ring-amber-100'
+                        : 'bg-white text-zinc-650 border-zinc-250 hover:bg-zinc-50'
+                    }`}
+                  >
+                    Observado (Solicitar Cambios)
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-zinc-500 font-mono uppercase">Observaciones y Retroalimentación</label>
+                <textarea
+                  required
+                  value={advisorFeedback}
+                  onChange={e => setAdvisorFeedback(e.target.value)}
+                  placeholder="Justifica detalladamente tu decisión o describe las correcciones obligatorias que el estudiante debe aplicar para la siguiente versión..."
+                  className="w-full text-xs bg-zinc-50 border border-zinc-200 rounded-lg p-2.5 focus:outline-none focus:border-zinc-500 min-h-[100px]"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2.5 bg-zinc-950 hover:bg-zinc-900 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm"
+              >
+                <span>Guardar Constancia de Revisión</span>
               </button>
 
             </form>

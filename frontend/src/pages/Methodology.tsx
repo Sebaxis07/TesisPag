@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useProjectStore } from '../store/ProjectStore';
 import { useAuthStore } from '../store/AuthStore';
-import { Settings, Plus, Trash2, ArrowRight, ArrowLeft } from 'lucide-react';
+import { Settings, Plus, Trash2, ArrowRight, ArrowLeft, Lock, Unlock, AlertTriangle } from 'lucide-react';
 
 interface Task {
   _id: string;
@@ -236,7 +236,7 @@ interface ColumnConfig {
 }
 
 interface BoardLayout {
-  type: 'scrum' | 'kanban' | 'waterfall' | 'spiral' | 'prototypes' | 'hybrid';
+  type: 'scrum' | 'kanban' | 'waterfall' | 'spiral' | 'prototypes' | 'hybrid' | 'rup' | 'xp' | 'devops';
   columns?: ColumnConfig[];
 }
 
@@ -265,20 +265,20 @@ const getBoardLayout = (methodology: string): BoardLayout => {
       };
     case 'XP':
       return {
-        type: 'kanban',
+        type: 'xp',
         columns: [
-          { name: 'Backlog / Historias', status: 'Todo' },
+          { name: 'Historias / Todo', status: 'Todo' },
           { name: 'Codificación & TDD', status: 'In-Progress' },
           { name: 'Refactorización & QA', status: 'Review' },
-          { name: 'Desplegado / Listo', status: 'Done' }
+          { name: 'Listo / Aprobado', status: 'Done' }
         ]
       };
     case 'DevOps':
       return {
-        type: 'kanban',
+        type: 'devops',
         columns: [
           { name: 'Plan & Backlog', status: 'Todo' },
-          { name: 'Code & CI Test', status: 'In-Progress' },
+          { name: 'CI/CD Pipelines', status: 'In-Progress' },
           { name: 'Deploy / Release', status: 'Review' },
           { name: 'Monitoreo / Prod', status: 'Done' }
         ]
@@ -305,16 +305,24 @@ const getBoardLayout = (methodology: string): BoardLayout => {
       };
     case 'RUP':
       return {
-        type: 'kanban',
+        type: 'rup',
         columns: [
-          { name: 'Inicio (Requisitos)', status: 'Todo' },
-          { name: 'Elaboración (Diseño)', status: 'In-Progress' },
-          { name: 'Construcción (Código)', status: 'Review' },
-          { name: 'Transición (Despliegue)', status: 'Done' }
+          { name: 'Por Hacer', status: 'Todo' },
+          { name: 'En Desarrollo', status: 'In-Progress' },
+          { name: 'En Revisión', status: 'Review' },
+          { name: 'Finalizado', status: 'Done' }
         ]
       };
     case 'Waterfall':
-      return { type: 'waterfall' };
+      return {
+        type: 'waterfall',
+        columns: [
+          { name: 'Por Hacer', status: 'Todo' },
+          { name: 'En Desarrollo', status: 'In-Progress' },
+          { name: 'En Revisión', status: 'Review' },
+          { name: 'Finalizado', status: 'Done' }
+        ]
+      };
     case 'Hibrida':
       return {
         type: 'hybrid',
@@ -341,7 +349,7 @@ const getBoardLayout = (methodology: string): BoardLayout => {
 export const Methodology: React.FC = () => {
   const { activeProject, updateProject, members } = useProjectStore();
   const { user: currentUser } = useAuthStore();
-  
+
   const [methodology, setMethodology] = useState<'Scrum' | 'Kanban' | 'Waterfall' | 'Hibrida' | 'Personalizada' | 'Agile' | 'Espiral' | 'Prototipos' | 'RUP' | 'XP' | 'DevOps'>('Scrum');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -359,6 +367,20 @@ export const Methodology: React.FC = () => {
   const [activeVersion, setActiveVersion] = useState('Prototipo v1');
   const [spiralRisk, setSpiralRisk] = useState('');
 
+  // Trazabilidad y gobernanza adaptativa states
+  const [requirements, setRequirements] = useState<any[]>([]);
+  const [taskLinkedReqs, setTaskLinkedReqs] = useState<string[]>([]);
+  const [isWaterfallBaseline, setIsWaterfallBaseline] = useState(false);
+  const [changeRequestCode, setChangeRequestCode] = useState('');
+  const [showChangeRequestModal, setShowChangeRequestModal] = useState(false);
+  const [changeRequestAuditLog, setChangeRequestAuditLog] = useState<{ id: string, code: string, action: string, timestamp: string }[]>([]);
+  const [newTestTitle, setNewTestTitle] = useState('');
+  const [selectedReqForTest, setSelectedReqForTest] = useState('');
+  const [activePhase, setActivePhase] = useState('Fase 1: Requisitos');
+  const [rupDeliverables, setRupDeliverables] = useState<Record<string, boolean>>({});
+  const [quickCode, setQuickCode] = useState('');
+  const [quickTitle, setQuickTitle] = useState('');
+
   const API_URL = 'http://localhost:5000/api';
   const headers = useAuthStore.getState().getAuthHeaders();
 
@@ -375,16 +397,51 @@ export const Methodology: React.FC = () => {
     }
   };
 
+  const fetchRequirements = async () => {
+    if (!activeProject) return;
+    try {
+      const response = await fetch(`${API_URL}/requirements/project/${activeProject._id}`, { headers });
+      if (response.ok) {
+        const data = await response.json();
+        setRequirements(data);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   useEffect(() => {
     if (activeProject) {
-      setMethodology(activeProject.methodology);
+      setMethodology(activeProject.methodology as any);
       fetchTasks();
+      fetchRequirements();
+
+      const isBaseline = localStorage.getItem(`tf_wf_baseline_${activeProject._id}`) === 'true';
+      setIsWaterfallBaseline(isBaseline);
+
+      const savedAuditLog = localStorage.getItem(`tf_wf_baseline_audit_${activeProject._id}`);
+      if (savedAuditLog) {
+        setChangeRequestAuditLog(JSON.parse(savedAuditLog));
+      } else {
+        setChangeRequestAuditLog([]);
+      }
+
+      const savedRupDeliv = localStorage.getItem(`tf_rup_deliv_${activeProject._id}`);
+      if (savedRupDeliv) {
+        setRupDeliverables(JSON.parse(savedRupDeliv));
+      } else {
+        setRupDeliverables({});
+      }
     }
   }, [activeProject]);
 
   useEffect(() => {
     if (methodology === 'Waterfall') {
+      setActivePhase('Fase 1: Requisitos');
       setTaskSprint('Fase 1: Requisitos');
+    } else if (methodology === 'RUP') {
+      setActivePhase('Inicio');
+      setTaskSprint('Inicio');
     } else if (methodology === 'Espiral') {
       setTaskSprint('Iteración 1');
     } else if (methodology === 'Prototipos') {
@@ -415,44 +472,180 @@ export const Methodology: React.FC = () => {
     await updateProject(activeProject._id, { methodology: value });
   };
 
-  const handleAddTask = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!activeProject || !taskTitle) return;
-
+  const handleCreateQuickRequirement = async (code: string, title: string) => {
+    if (!activeProject) return;
     try {
-      const response = await fetch(`${API_URL}/tasks`, {
+      const response = await fetch(`${API_URL}/requirements`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({
           project: activeProject._id,
-          title: taskTitle,
-          description: taskDesc,
-          assignedTo: taskAssignedTo || null,
-          sprint: taskSprint,
-          status: taskStatus
+          code,
+          title,
+          type: code.startsWith('RN') ? 'NonFunctional' : 'Functional',
+          priority: 'Medium',
+          status: 'Draft',
+          source: 'Manual'
         })
       });
+      if (response.ok) {
+        await fetchRequirements();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
+  const handleAssignRequirement = async (reqId: string, value: string) => {
+    let updateField = {};
+    if (methodology === 'Waterfall' || methodology === 'RUP') {
+      updateField = { phaseRef: value };
+    } else if (methodology === 'Espiral') {
+      updateField = { iterationRef: value };
+    } else if (methodology === 'Prototipos') {
+      updateField = { prototypeVersionRef: value };
+    } else {
+      updateField = { sprintRef: value };
+    }
+    try {
+      const response = await fetch(`${API_URL}/requirements/${reqId}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(updateField)
+      });
+      if (response.ok) {
+        await fetchRequirements();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleToggleTestStatus = async (reqId: string, testIdx: number, currentStatus: any) => {
+    const req = requirements.find(r => r._id === reqId);
+    if (!req) return;
+    const updatedTests = [...(req.linkedTests || [])];
+    const nextStatus = currentStatus === 'Passed' ? 'Failed' : currentStatus === 'Failed' ? 'Pending' : 'Passed';
+    updatedTests[testIdx] = { ...updatedTests[testIdx], status: nextStatus };
+    try {
+      await fetch(`${API_URL}/requirements/${reqId}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ linkedTests: updatedTests })
+      });
+      await fetchRequirements();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleAddUsabilityTest = async (reqId: string) => {
+    if (!newTestTitle.trim()) return;
+    const req = requirements.find(r => r._id === reqId);
+    if (!req) return;
+    const updatedTests = [...(req.linkedTests || []), { title: newTestTitle, status: 'Pending', description: 'Prueba de Usabilidad' }];
+    try {
+      const response = await fetch(`${API_URL}/requirements/${reqId}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ linkedTests: updatedTests })
+      });
+      if (response.ok) {
+        setNewTestTitle('');
+        setSelectedReqForTest('');
+        await fetchRequirements();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleToggleWaterfallBaseline = () => {
+    if (!activeProject) return;
+    const nextVal = !isWaterfallBaseline;
+    setIsWaterfallBaseline(nextVal);
+    localStorage.setItem(`tf_wf_baseline_${activeProject._id}`, nextVal ? 'true' : 'false');
+  };
+
+  const handleExecuteChangeRequest = async () => {
+    if (!changeRequestCode.trim() || !activeProject) return;
+
+    const pending = (window as any)._pendingReqAction;
+    if (!pending) return;
+
+    let desc = "";
+    if (pending.action === 'create') {
+      desc = `Creado Req Rápido [${pending.code}] ${pending.title}`;
+      await handleCreateQuickRequirement(pending.code, pending.title);
+    } else if (pending.action === 'assign') {
+      desc = `Asignado Req ID [${pending.id}] a valor [${pending.value}]`;
+      await handleAssignRequirement(pending.id, pending.value);
+    } else if (pending.action === 'create_task') {
+      desc = `Creada Tarea [${pending.body.title}] vinculada a requerimientos`;
+      await handleCreateTaskAction(pending.body);
+    }
+
+    const logEntry = {
+      id: Date.now().toString(),
+      code: changeRequestCode,
+      action: desc,
+      timestamp: new Date().toLocaleString()
+    };
+
+    const newLog = [logEntry, ...changeRequestAuditLog];
+    setChangeRequestAuditLog(newLog);
+    localStorage.setItem(`tf_wf_baseline_audit_${activeProject._id}`, JSON.stringify(newLog));
+
+    setChangeRequestCode('');
+    setShowChangeRequestModal(false);
+    (window as any)._pendingReqAction = null;
+  };
+
+  const handleCreateTaskAction = async (body: any) => {
+    try {
+      const response = await fetch(`${API_URL}/tasks`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
       if (response.ok) {
         setShowTaskModal(false);
         setTaskTitle('');
         setTaskDesc('');
         setTaskAssignedTo('');
-        if (methodology === 'Waterfall') {
-          setTaskSprint('Fase 1: Requisitos');
-        } else if (methodology === 'Espiral') {
-          setTaskSprint(activeIteration);
-        } else if (methodology === 'Prototipos') {
-          setTaskSprint(activeVersion);
-        } else {
-          setTaskSprint(activeSprint);
-        }
-        setTaskStatus('Todo');
+        setTaskLinkedReqs([]);
         await fetchTasks();
+        await fetchRequirements();
       }
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleAddTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeProject || !taskTitle) return;
+
+    const body = {
+      project: activeProject._id,
+      title: taskTitle,
+      description: taskDesc,
+      assignedTo: taskAssignedTo || null,
+      sprint: taskSprint,
+      status: taskStatus,
+      linkedRequirements: taskLinkedReqs
+    };
+
+    if (methodology === 'Waterfall' && isWaterfallBaseline) {
+      setShowChangeRequestModal(true);
+      (window as any)._pendingReqAction = {
+        action: 'create_task',
+        body
+      };
+      return;
+    }
+
+    await handleCreateTaskAction(body);
   };
 
   const handleMoveTask = async (taskId: string, nextStatus: 'Todo' | 'In-Progress' | 'Review' | 'Done') => {
@@ -485,7 +678,6 @@ export const Methodology: React.FC = () => {
       }
     }
   };
-
   if (!activeProject) {
     return (
       <div className="flex flex-col items-center justify-center h-64 border border-zinc-200 rounded-lg bg-white p-8">
@@ -495,7 +687,844 @@ export const Methodology: React.FC = () => {
     );
   }
 
-  const layout = getBoardLayout(methodology);
+  const getLinkedRequirementsForTask = (taskId: string) => {
+    return requirements.filter(req => req.linkedTasks?.some((tId: any) => tId.toString() === taskId || tId._id === taskId));
+  };
+
+  const getFilteredTasks = () => {
+    if (methodology === 'Kanban') {
+      return tasks;
+    } else if (methodology === 'Waterfall' || methodology === 'RUP') {
+      return tasks.filter(t => t.sprint === activePhase);
+    } else if (methodology === 'Espiral') {
+      return tasks.filter(t => t.sprint === activeIteration);
+    } else if (methodology === 'Prototipos') {
+      return tasks.filter(t => t.sprint === activeVersion);
+    } else {
+      return tasks.filter(t => t.sprint === activeSprint);
+    }
+  };
+
+  const checkWaterfallLocked = (taskSprint: string) => {
+    if (methodology !== 'Waterfall') return { isLocked: false, prevPhase: '' };
+    const phaseIdx = WATERFALL_PHASES.indexOf(taskSprint);
+    if (phaseIdx <= 0) return { isLocked: false, prevPhase: '' };
+    
+    for (let i = 0; i < phaseIdx; i++) {
+      const prevPhase = WATERFALL_PHASES[i];
+      const prevTasks = tasks.filter(t => t.sprint === prevPhase);
+      const prevCompleted = prevTasks.filter(t => t.status === 'Done').length;
+      if (prevTasks.length > 0 && prevCompleted < prevTasks.length) {
+        return { isLocked: true, prevPhase };
+      }
+    }
+    return { isLocked: false, prevPhase: '' };
+  };
+
+  const handleUpdateReqWfStatus = async (reqId: string, status: string) => {
+    try {
+      const response = await fetch(`${API_URL}/requirements/${reqId}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workflowStatus: status })
+      });
+      if (response.ok) {
+        await fetchRequirements();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleToggleRupDeliverable = (key: string) => {
+    if (!activeProject) return;
+    const updated = { ...rupDeliverables, [key]: !rupDeliverables[key] };
+    setRupDeliverables(updated);
+    localStorage.setItem(`tf_rup_deliv_${activeProject._id}`, JSON.stringify(updated));
+  };
+
+  const renderRequirementPanel = (): React.ReactNode => {
+    const handleQuickAddSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!quickCode.trim() || !quickTitle.trim()) return;
+
+      const code = quickCode.toUpperCase();
+      const title = quickTitle;
+
+      if (methodology === 'Waterfall' && isWaterfallBaseline) {
+        setShowChangeRequestModal(true);
+        (window as any)._pendingReqAction = {
+          action: 'create',
+          code,
+          title
+        };
+        return;
+      }
+
+      await handleCreateQuickRequirement(code, title);
+      setQuickCode('');
+      setQuickTitle('');
+    };
+
+    return (
+      <div className="space-y-6">
+        <div>
+          <h3 className="text-xs font-extrabold text-black font-mono uppercase tracking-wider">Planificación de Requisitos</h3>
+          <p className="text-[10px] text-zinc-550">Trazabilidad y Asignación de Alcance</p>
+        </div>
+
+        {/* Quick Add Form */}
+        {currentUser?.role !== 'Viewer' && (
+          <form onSubmit={handleQuickAddSubmit} className="space-y-2.5 bg-white border border-zinc-200 rounded p-3 shadow-inner">
+            <span className="text-[9px] font-mono text-zinc-400 uppercase block font-bold">Agregar Requisito Rápido</span>
+            <div className="grid grid-cols-3 gap-2">
+              <input
+                type="text"
+                placeholder="RF-01"
+                value={quickCode}
+                onChange={e => setQuickCode(e.target.value)}
+                className="col-span-1 bg-white border border-zinc-200 rounded px-2 py-1 text-xs text-black font-semibold focus:outline-none focus:border-black uppercase placeholder-zinc-300"
+              />
+              <input
+                type="text"
+                placeholder="Nombre del requisito..."
+                value={quickTitle}
+                onChange={e => setQuickTitle(e.target.value)}
+                className="col-span-2 bg-white border border-zinc-200 rounded px-2 py-1 text-xs text-black focus:outline-none focus:border-black placeholder-zinc-300"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full bg-black text-white hover:bg-zinc-800 text-[10px] font-bold py-1.5 rounded transition-colors"
+            >
+              + Crear Requisito
+            </button>
+          </form>
+        )}
+
+        {/* Requirements list */}
+        <div className="space-y-3 max-h-[480px] overflow-y-auto pr-1">
+          {requirements.map((req) => {
+            const hasTests = req.linkedTests && req.linkedTests.length > 0;
+            const passedTests = hasTests ? req.linkedTests.filter((t: any) => t.status === 'Passed').length : 0;
+            const statusLabel = req.workflowStatus || req.status || 'Draft';
+
+            let currentValue = '';
+            if (methodology === 'Waterfall' || methodology === 'RUP') {
+              currentValue = req.phaseRef || '';
+            } else if (methodology === 'Espiral') {
+              currentValue = req.iterationRef || '';
+            } else if (methodology === 'Prototipos') {
+              currentValue = req.prototypeVersionRef || '';
+            } else {
+              currentValue = req.sprintRef || '';
+            }
+
+            return (
+              <div key={req._id} className="bg-white border border-zinc-200 rounded p-3 space-y-2 shadow-sm hover:border-zinc-350 transition-colors">
+                <div className="flex justify-between items-start gap-1">
+                  <div>
+                    <span className="text-[9px] font-mono font-bold bg-zinc-100 border border-zinc-200 px-1 py-0.5 rounded text-zinc-600">
+                      {req.code}
+                    </span>
+                    <span className="text-[9px] font-mono font-bold ml-1.5 uppercase text-zinc-400">
+                      {req.type === 'NonFunctional' ? 'RNF' : 'RF'}
+                    </span>
+                  </div>
+
+                  <span className={`text-[8px] font-mono font-bold uppercase px-1.5 py-0.5 rounded ${
+                    statusLabel === 'Completed' ? 'bg-green-50 text-green-700' :
+                    statusLabel === 'Implemented' || statusLabel === 'En Validación' ? 'bg-amber-50 text-amber-700' :
+                    statusLabel === 'In-Progress' ? 'bg-blue-50 text-blue-700' : 'bg-zinc-100 text-zinc-500'
+                  }`}>
+                    {statusLabel}
+                  </span>
+                </div>
+
+                <span className="text-xs font-bold text-black block leading-tight">{req.title}</span>
+
+                {/* Assignment Dropdown */}
+                {currentUser?.role !== 'Viewer' && (
+                  <div className="space-y-1">
+                    <label className="block text-[8px] font-mono text-zinc-400 uppercase font-semibold">
+                      {methodology === 'Waterfall' || methodology === 'RUP' ? 'Fase de Ingeniería' :
+                       methodology === 'Espiral' ? 'Ciclo / Iteración' :
+                       methodology === 'Prototipos' ? 'Versión de Prototipo' : 'Sprint Asignado'}
+                    </label>
+                    <select
+                      value={currentValue}
+                      onChange={async e => {
+                        const val = e.target.value;
+                        if (methodology === 'Waterfall' && isWaterfallBaseline) {
+                          setShowChangeRequestModal(true);
+                          (window as any)._pendingReqAction = {
+                            action: 'assign',
+                            id: req._id,
+                            value: val
+                          };
+                          return;
+                        }
+                        await handleAssignRequirement(req._id, val);
+                      }}
+                      className="w-full bg-white border border-zinc-200 rounded px-1.5 py-1 text-[10px] text-zinc-700 font-semibold focus:outline-none focus:border-black cursor-pointer"
+                    >
+                      <option value="">Sin Asignar</option>
+                      {methodology === 'Waterfall' && (
+                        WATERFALL_PHASES.map(p => <option key={p} value={p}>{p}</option>)
+                      )}
+                      {methodology === 'RUP' && (
+                        ['Inicio', 'Elaboración', 'Construcción', 'Transición'].map(p => <option key={p} value={p}>{p}</option>)
+                      )}
+                      {methodology === 'Espiral' && (
+                        SPIRAL_ITERATIONS.map(p => <option key={p} value={p}>{p}</option>)
+                      )}
+                      {methodology === 'Prototipos' && (
+                        PROTOTYPE_VERSIONS.map(p => <option key={p} value={p}>{p}</option>)
+                      )}
+                      {!['Waterfall', 'RUP', 'Espiral', 'Prototipos'].includes(methodology) && (
+                        ['Sprint 1', 'Sprint 2', 'Sprint 3', 'Backlog'].map(p => <option key={p} value={p}>{p}</option>)
+                      )}
+                    </select>
+                  </div>
+                )}
+
+                {/* Test verification metrics */}
+                {hasTests && (
+                  <div className="flex justify-between items-center text-[9px] text-zinc-500 pt-1.5 border-t border-zinc-100">
+                    <span>Pruebas:</span>
+                    <span className={`font-bold font-mono ${passedTests === req.linkedTests.length ? 'text-green-700' : 'text-zinc-600'}`}>
+                      {passedTests}/{req.linkedTests.length} ({Math.round((passedTests / req.linkedTests.length) * 100)}%)
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {requirements.length === 0 && (
+            <div className="text-center py-8 border border-dashed border-zinc-200 rounded-md text-[10px] text-zinc-400 italic bg-white">
+              No hay requerimientos en la pila
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderMethodologyWorkspaces = (): React.ReactNode => {
+    if (methodology === 'Waterfall') {
+      return (
+        <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 border-b border-zinc-150">
+            <div>
+              <h4 className="text-xs font-extrabold text-black font-mono uppercase tracking-wider">Gobernanza Waterfall</h4>
+              <p className="text-[10px] text-zinc-500">Línea Base del Alcance y Control de Cambios</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleToggleWaterfallBaseline}
+                disabled={currentUser?.role === 'Viewer'}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold transition-colors ${
+                  isWaterfallBaseline
+                    ? 'bg-red-50 text-red-700 border border-red-200 hover:bg-red-100'
+                    : 'bg-zinc-100 text-zinc-700 border border-zinc-200 hover:bg-zinc-200'
+                }`}
+              >
+                {isWaterfallBaseline ? (
+                  <>
+                    <Lock className="w-3.5 h-3.5 text-red-650" /> Línea Base Congelada
+                  </>
+                ) : (
+                  <>
+                    <Unlock className="w-3.5 h-3.5 text-zinc-550" /> Establecer Línea Base
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+            <div className="space-y-2">
+              <span className="text-[10px] font-mono text-zinc-400 uppercase block font-bold">Fases de Ingeniería Cascada</span>
+              <div className="flex flex-wrap gap-1.5">
+                {WATERFALL_PHASES.map((phase) => {
+                  const phaseTasks = tasks.filter(t => t.sprint === phase);
+                  const isDone = phaseTasks.length > 0 && phaseTasks.every(t => t.status === 'Done');
+                  const active = phase === activePhase;
+                  return (
+                    <button
+                      key={phase}
+                      type="button"
+                      onClick={() => {
+                        setActivePhase(phase);
+                        setTaskSprint(phase);
+                      }}
+                      className={`px-3 py-1.5 rounded-full font-semibold border transition-all text-[11px] ${
+                        active
+                          ? 'bg-black text-white border-black'
+                          : isDone
+                            ? 'bg-green-50 text-green-700 border-green-200'
+                            : 'bg-white text-zinc-650 border-zinc-200 hover:border-zinc-300'
+                      }`}
+                    >
+                      {phase.replace('Fase ', 'F')} {isDone && '✓'}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="bg-zinc-50 border border-zinc-200 rounded p-3 space-y-1">
+              <span className="text-[9px] font-mono text-zinc-400 uppercase block font-bold">Bitácora de Control de Cambios</span>
+              <div className="max-h-20 overflow-y-auto space-y-1.5 pr-1 font-mono text-[9px] text-zinc-600">
+                {changeRequestAuditLog.map(log => (
+                  <div key={log.id} className="flex justify-between border-b border-zinc-100 pb-0.5">
+                    <span>[{log.code}] {log.action}</span>
+                    <span className="text-zinc-400">{log.timestamp}</span>
+                  </div>
+                ))}
+                {changeRequestAuditLog.length === 0 && (
+                  <span className="text-zinc-400 italic block py-2">No se han registrado solicitudes de cambio.</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (methodology === 'RUP') {
+      const phases = ['Inicio', 'Elaboración', 'Construcción', 'Transición'];
+      const deliverables: Record<string, string[]> = {
+        'Inicio': ['Elicitación de Requisitos base', 'Modelo del Dominio y Glosario'],
+        'Elaboración': ['Documento de Arquitectura (SAD)', 'Prototipo de Arquitectura Ejecutable'],
+        'Construcción': ['Código Fuente e Implementación', 'Casos de Pruebas de Integración'],
+        'Transición': ['Manuales de Usuario y Entrega', 'Despliegue Staging / Prod']
+      };
+
+      return (
+        <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm space-y-4">
+          <div className="pb-2 border-b border-zinc-150">
+            <h4 className="text-xs font-extrabold text-black font-mono uppercase tracking-wider">Hitos del Rational Unified Process (RUP)</h4>
+            <p className="text-[10px] text-zinc-500">Gobernanza de Fases Formales y Entregables de Ingeniería</p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
+            {phases.map((phase) => {
+              const active = phase === activePhase;
+              const phaseDelivs = deliverables[phase] || [];
+              const completedCount = phaseDelivs.filter(d => rupDeliverables[`${phase}_${d}`]).length;
+              const percent = Math.round((completedCount / phaseDelivs.length) * 100);
+
+              return (
+                <div
+                  key={phase}
+                  onClick={() => {
+                    setActivePhase(phase);
+                    setTaskSprint(phase);
+                  }}
+                  className={`p-3 border rounded-md cursor-pointer transition-all ${
+                    active
+                      ? 'border-black ring-1 ring-black bg-zinc-50/20'
+                      : 'border-zinc-200 hover:border-zinc-300 bg-white'
+                  }`}
+                >
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold text-black">{phase}</span>
+                    <span className="text-[10px] font-mono font-bold text-zinc-550">{percent}%</span>
+                  </div>
+                  <div className="w-full bg-zinc-100 h-1 rounded-full mt-1.5 overflow-hidden">
+                    <div className="bg-black h-full" style={{ width: `${percent}%` }}></div>
+                  </div>
+
+                  {/* Deliverables checklist */}
+                  <div className="mt-3 space-y-1.5 border-t border-zinc-100 pt-2" onClick={e => e.stopPropagation()}>
+                    {phaseDelivs.map(d => (
+                      <label key={d} className="flex items-center gap-1.5 text-[9px] text-zinc-600 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!rupDeliverables[`${phase}_${d}`]}
+                          disabled={currentUser?.role === 'Viewer'}
+                          onChange={() => handleToggleRupDeliverable(`${phase}_${d}`)}
+                          className="rounded text-black focus:ring-black h-3 w-3"
+                        />
+                        <span className={rupDeliverables[`${phase}_${d}`] ? 'line-through text-zinc-400' : ''}>
+                          {d}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    if (methodology === 'Kanban') {
+      const workflowStatuses = ['Backlog', 'En Análisis', 'Listo para Desarrollo', 'En Validación', 'Aprobado'];
+      return (
+        <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm space-y-4">
+          <div className="pb-2 border-b border-zinc-150">
+            <h4 className="text-xs font-extrabold text-black font-mono uppercase tracking-wider">Tablero de Estados de Requerimientos</h4>
+            <p className="text-[10px] text-zinc-500">Monitoreo conceptual del alcance (independiente de tareas técnicas)</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            {workflowStatuses.map((wfStatus) => {
+              const reqs = requirements.filter(r => {
+                if (wfStatus === 'Backlog') return r.workflowStatus === 'Backlog' || !r.workflowStatus;
+                if (wfStatus === 'En Análisis') return r.workflowStatus === 'In-Progress';
+                if (wfStatus === 'Listo para Desarrollo') return r.workflowStatus === 'Implemented';
+                if (wfStatus === 'En Validación') return r.workflowStatus === 'En Validación';
+                return r.workflowStatus === 'Completed';
+              });
+
+              return (
+                <div key={wfStatus} className="bg-zinc-50/50 border border-zinc-200 rounded p-3 space-y-2">
+                  <div className="flex justify-between items-center border-b border-zinc-150 pb-1">
+                    <span className="text-[10px] font-bold text-zinc-700 uppercase font-mono">{wfStatus}</span>
+                    <span className="text-[10px] font-mono bg-zinc-200 text-zinc-800 px-1.5 py-0.5 rounded-full font-bold">
+                      {reqs.length}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 max-h-32 overflow-y-auto">
+                    {reqs.map((req: any) => (
+                      <div key={req._id} className="bg-white border border-zinc-200 rounded p-1.5 shadow-sm text-[10px] space-y-1">
+                        <div className="flex justify-between items-center">
+                          <span className="font-mono font-bold text-zinc-500">{req.code}</span>
+                          {currentUser?.role !== 'Viewer' && (
+                            <div className="flex gap-0.5">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const nextIdx = workflowStatuses.indexOf(wfStatus) - 1;
+                                  if (nextIdx >= 0) {
+                                    const nextWf = workflowStatuses[nextIdx];
+                                    const mappedStatus = nextWf === 'Backlog' ? 'Backlog' : nextWf === 'En Análisis' ? 'In-Progress' : nextWf === 'Listo para Desarrollo' ? 'Implemented' : nextWf === 'En Validación' ? 'En Validación' : 'Completed';
+                                    await handleUpdateReqWfStatus(req._id, mappedStatus);
+                                  }
+                                }}
+                                className="px-1 bg-zinc-100 hover:bg-zinc-200 border rounded font-bold"
+                              >
+                                ◀
+                              </button>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const nextIdx = workflowStatuses.indexOf(wfStatus) + 1;
+                                  if (nextIdx < workflowStatuses.length) {
+                                    const nextWf = workflowStatuses[nextIdx];
+                                    const mappedStatus = nextWf === 'Backlog' ? 'Backlog' : nextWf === 'En Análisis' ? 'In-Progress' : nextWf === 'Listo para Desarrollo' ? 'Implemented' : nextWf === 'En Validación' ? 'En Validación' : 'Completed';
+                                    await handleUpdateReqWfStatus(req._id, mappedStatus);
+                                  }
+                                }}
+                                className="px-1 bg-zinc-100 hover:bg-zinc-200 border rounded font-bold"
+                              >
+                                ▶
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        <span className="font-medium text-black line-clamp-1">{req.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    if (methodology === 'Prototipos') {
+      const activeVersionReqs = requirements.filter(r => r.prototypeVersionRef === activeVersion);
+      return (
+        <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm space-y-4">
+          <div className="pb-2 border-b border-zinc-150">
+            <h4 className="text-xs font-extrabold text-black font-mono uppercase tracking-wider">Validación de Usabilidad del Prototipo ({activeVersion})</h4>
+            <p className="text-[10px] text-zinc-500">Trazabilidad de pruebas y feedback directo con usuarios</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <span className="text-[10px] font-mono text-zinc-400 uppercase block font-bold">Pruebas por Requerimiento</span>
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {activeVersionReqs.map(req => (
+                  <div key={req._id} className="border border-zinc-200 rounded p-2.5 bg-zinc-50 space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-[10px] font-mono font-bold text-zinc-500 bg-zinc-200 px-1 py-0.5 rounded">{req.code}</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedReqForTest(req._id)}
+                        className="text-[10px] text-blue-700 font-bold hover:underline"
+                      >
+                        + Nueva Prueba
+                      </button>
+                    </div>
+                    <span className="text-[11px] font-bold text-black block">{req.title}</span>
+
+                    {/* Tests list */}
+                    <div className="space-y-1 mt-1.5">
+                      {req.linkedTests?.map((test: any, idx: number) => (
+                        <div key={idx} className="flex justify-between items-center bg-white border border-zinc-150 p-1.5 rounded text-[10px]">
+                          <span>{test.title}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleTestStatus(req._id, idx, test.status)}
+                            disabled={currentUser?.role === 'Viewer'}
+                            className={`px-2 py-0.5 rounded font-mono font-bold text-[9px] ${
+                              test.status === 'Passed' ? 'bg-green-100 text-green-700' :
+                              test.status === 'Failed' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                            }`}
+                          >
+                            {test.status === 'Passed' ? 'PASÓ' : test.status === 'Failed' ? 'FALLÓ' : 'PEND.'}
+                          </button>
+                        </div>
+                      ))}
+                      {(!req.linkedTests || req.linkedTests.length === 0) && (
+                        <span className="text-[10px] text-zinc-400 italic block">Sin pruebas registradas.</span>
+                      )}
+                    </div>
+
+                    {/* Quick test add form */}
+                    {selectedReqForTest === req._id && (
+                      <div className="mt-2 pt-2 border-t border-zinc-200 flex gap-1">
+                        <input
+                          type="text"
+                          placeholder="Nombre de la prueba..."
+                          value={newTestTitle}
+                          onChange={e => setNewTestTitle(e.target.value)}
+                          className="w-full bg-white border border-zinc-200 rounded px-2 py-0.5 text-[10px] text-black focus:outline-none focus:border-black"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleAddUsabilityTest(req._id)}
+                          className="bg-black text-white hover:bg-zinc-800 px-2 py-0.5 rounded text-[10px] font-bold"
+                        >
+                          +
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {activeVersionReqs.length === 0 && (
+                  <div className="text-zinc-400 italic text-[11px] py-4 text-center">
+                    Asigna requerimientos a la versión "{activeVersion}" para registrar pruebas.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-zinc-50 border border-zinc-200 rounded p-4 flex flex-col justify-center">
+              <span className="text-[10px] font-mono text-zinc-400 uppercase block mb-1 font-bold">Métricas de Validación</span>
+              <div className="grid grid-cols-2 gap-3 text-center mt-2">
+                <div className="bg-white border rounded p-2.5">
+                  <span className="text-[9px] text-zinc-500 font-medium block font-bold">Total Pruebas</span>
+                  <span className="text-lg font-bold text-black">
+                    {activeVersionReqs.reduce((acc, r) => acc + (r.linkedTests?.length || 0), 0)}
+                  </span>
+                </div>
+                <div className="bg-white border rounded p-2.5">
+                  <span className="text-[9px] text-zinc-500 font-medium block font-bold">Pruebas Aprobadas</span>
+                  <span className="text-lg font-bold text-green-700">
+                    {activeVersionReqs.reduce((acc, r) => acc + (r.linkedTests?.filter((t: any) => t.status === 'Passed').length || 0), 0)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (methodology === 'Espiral') {
+      const nfrs = requirements.filter(r => r.type === 'NonFunctional');
+      return (
+        <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm space-y-4">
+          <div className="pb-2 border-b border-zinc-150">
+            <h4 className="text-xs font-extrabold text-black font-mono uppercase tracking-wider">Mitigación de Riesgos e Ingeniería de Requisitos No Funcionales (RNF)</h4>
+            <p className="text-[10px] text-zinc-500">Trazabilidad de riesgos y restricciones de seguridad / arquitectura</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-3">
+              <span className="text-[10px] font-mono text-zinc-400 uppercase block font-bold">Análisis de Riesgos: {activeIteration}</span>
+              <div className="space-y-2">
+                <textarea
+                  value={spiralRisk}
+                  onChange={e => setSpiralRisk(e.target.value)}
+                  placeholder="Escribe el plan de mitigación y evaluación de riesgos técnicos de este ciclo..."
+                  rows={3}
+                  className="w-full bg-white border border-zinc-200 rounded p-2 text-xs text-black focus:outline-none focus:border-black"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveRisk}
+                  className="bg-black text-white hover:bg-zinc-800 text-[10px] font-bold px-3 py-1.5 rounded transition-colors"
+                >
+                  Guardar Bitácora de Riesgos
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-zinc-50 border border-zinc-200 rounded p-3 space-y-2">
+              <span className="text-[10px] font-mono text-zinc-400 uppercase block font-bold">Requisitos No Funcionales Vinculados</span>
+              <div className="space-y-1.5 max-h-32 overflow-y-auto pr-1">
+                {nfrs.map(r => (
+                  <div key={r._id} className="bg-white border border-zinc-200 rounded p-2 text-[10px] flex justify-between items-center shadow-sm">
+                    <div>
+                      <span className="font-mono font-bold text-zinc-550 block">{r.code}</span>
+                      <span className="font-bold text-black">{r.title}</span>
+                    </div>
+                    <span className="text-[9px] bg-red-50 text-red-750 px-1.5 py-0.5 rounded font-mono font-bold">RNF</span>
+                  </div>
+                ))}
+                {nfrs.length === 0 && (
+                  <span className="text-[10px] text-zinc-400 italic block py-2">No se han registrado requerimientos no funcionales (códigos RN-xx).</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (methodology === 'DevOps') {
+      const activeSprintReqs = requirements.filter(r => r.sprintRef === activeSprint);
+      return (
+        <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm space-y-4">
+          <div className="pb-2 border-b border-zinc-150">
+            <h4 className="text-xs font-extrabold text-black font-mono uppercase tracking-wider">Pipeline de Despliegue de Requerimientos ({activeSprint})</h4>
+            <p className="text-[10px] text-zinc-500">Trazabilidad en tiempo real desde la implementación hasta producción</p>
+          </div>
+
+          <div className="space-y-3">
+            {activeSprintReqs.map(req => {
+              const reqTasks = tasks.filter(t => req.linkedTasks?.some((id: any) => id.toString() === t._id));
+              let step = 0;
+              if (reqTasks.length > 0) {
+                if (reqTasks.every(t => t.status === 'Done')) {
+                  step = 3;
+                } else if (reqTasks.some(t => t.status === 'Review')) {
+                  step = 2;
+                } else if (reqTasks.some(t => t.status === 'In-Progress')) {
+                  step = 1;
+                }
+              }
+
+              return (
+                <div key={req._id} className="border border-zinc-150 rounded-lg p-3 bg-zinc-50/50 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                  <div className="w-full md:w-1/3">
+                    <span className="text-[9px] font-mono font-bold text-zinc-500 bg-zinc-200 px-1 py-0.5 rounded">{req.code}</span>
+                    <span className="text-xs font-bold text-black block mt-1">{req.title}</span>
+                  </div>
+
+                  <div className="w-full md:w-2/3 flex items-center justify-between gap-1">
+                    {[
+                      { label: 'Plan', active: step >= 0, color: 'bg-zinc-400' },
+                      { label: 'CI Test', active: step >= 1, color: 'bg-blue-600' },
+                      { label: 'Staging', active: step >= 2, color: 'bg-amber-600' },
+                      { label: 'Prod', active: step >= 3, color: 'bg-green-600' }
+                    ].map((st, sIdx) => (
+                      <React.Fragment key={st.label}>
+                        {sIdx > 0 && (
+                          <div className={`flex-1 h-0.5 ${step >= sIdx ? 'bg-black' : 'bg-zinc-200'}`}></div>
+                        )}
+                        <div className="flex flex-col items-center gap-1">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold text-white transition-all ${
+                            st.active ? st.color + ' ring-2 ring-white shadow-sm' : 'bg-zinc-200 text-zinc-400'
+                          }`}>
+                            {sIdx + 1}
+                          </div>
+                          <span className={`text-[8px] font-mono font-bold uppercase ${st.active ? 'text-black' : 'text-zinc-400'}`}>{st.label}</span>
+                        </div>
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+            {activeSprintReqs.length === 0 && (
+              <div className="text-zinc-400 italic text-[11px] py-4 text-center">
+                Asigna requerimientos a la pila de "{activeSprint}" para ver el estado de despliegue DevOps.
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  const renderTaskBoard = (): React.ReactNode => {
+    const boardTasks = getFilteredTasks();
+    const layout = getBoardLayout(methodology);
+    const columns = layout.columns || [
+      { name: 'Por Hacer', status: 'Todo' },
+      { name: 'En Desarrollo', status: 'In-Progress' },
+      { name: 'En Revisión', status: 'Review' },
+      { name: 'Finalizado', status: 'Done' }
+    ];
+
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
+        {columns.map(col => {
+          const colTasks = boardTasks.filter(t => t.status === col.status);
+          return (
+            <div key={col.status} className="bg-zinc-100 rounded-lg p-3 border border-zinc-200 min-h-[500px] flex flex-col">
+              <div className="flex justify-between items-center mb-4 pb-2 border-b border-zinc-200">
+                <span className="text-xs font-extrabold text-black uppercase font-mono">{col.name}</span>
+                <span className="text-[10px] bg-white border border-zinc-250 font-bold px-2 py-0.5 rounded-full text-zinc-700">
+                  {colTasks.length}
+                </span>
+              </div>
+
+              <div className="space-y-3 flex-1 overflow-y-auto">
+                {colTasks.map(task => {
+                  const linkedReqs = getLinkedRequirementsForTask(task._id);
+                  const isWfLocked = checkWaterfallLocked(task.sprint);
+
+                  return (
+                    <div key={task._id} className="bg-white border border-zinc-200 rounded-md p-3.5 shadow-sm space-y-3 hover:border-zinc-300 transition-colors relative">
+                      {isWfLocked.isLocked && (
+                        <div className="absolute inset-0 bg-zinc-100/70 z-10 flex items-center justify-center p-2 rounded-md">
+                          <span className="text-[9px] font-mono font-bold text-amber-800 bg-amber-50 border border-amber-250 px-2 py-1 rounded text-center">
+                            ⚠️ Bloqueado: Completa {isWfLocked.prevPhase.replace('Fase ', 'F')} primero
+                          </span>
+                        </div>
+                      )}
+
+                      <div>
+                        <div className="flex justify-between items-start gap-1">
+                          <span className="text-xs font-bold text-black font-sans leading-tight block">{task.title}</span>
+                          {currentUser?.role !== 'Viewer' && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTask(task._id)}
+                              className="text-zinc-300 hover:text-red-650 shrink-0 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-zinc-500 mt-1 line-clamp-2">{task.description}</p>
+                      </div>
+
+                      {/* Display linked requirements links */}
+                      {linkedReqs.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {linkedReqs.map(req => (
+                            <span key={req._id} className="text-[8px] font-mono font-bold bg-zinc-100 border border-zinc-200 px-1 py-0.5 rounded text-zinc-600">
+                              {req.code}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* XP & TDD specifics inside task card */}
+                      {methodology === 'XP' && linkedReqs.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-zinc-100 space-y-1.5 bg-zinc-50 p-2 rounded">
+                          <span className="text-[9px] font-mono text-zinc-400 uppercase block font-semibold">Criterios TDD:</span>
+                          {linkedReqs.map(req => (
+                            <div key={req._id} className="space-y-1">
+                              <span className="text-[8px] font-bold text-zinc-600 block">{req.code} Criterios</span>
+                              {req.linkedTests?.map((test: any, testIdx: number) => (
+                                <label key={testIdx} className="flex items-center gap-1.5 text-[9px] text-zinc-700 cursor-pointer hover:bg-zinc-200 rounded p-0.5">
+                                  <input
+                                    type="checkbox"
+                                    checked={test.status === 'Passed'}
+                                    disabled={currentUser?.role === 'Viewer'}
+                                    onChange={() => handleToggleTestStatus(req._id, testIdx, test.status)}
+                                    className="rounded text-black focus:ring-black h-3 w-3"
+                                  />
+                                  <span className={test.status === 'Passed' ? 'line-through text-zinc-400' : ''}>
+                                    {test.title}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* DevOps CI/CD pipeline display on task card */}
+                      {methodology === 'DevOps' && (
+                        <div className="mt-2 pt-2 border-t border-zinc-100 space-y-1">
+                          <span className="text-[8px] font-mono text-zinc-400 uppercase block font-semibold">DevOps Stage:</span>
+                          <div className="flex justify-between items-center gap-1 bg-zinc-50 p-1 rounded border border-zinc-150">
+                            {[
+                              { label: 'Plan', active: true, style: 'bg-zinc-100 text-zinc-500' },
+                              { label: 'CI Test', active: task.status !== 'Todo', style: task.status === 'Todo' ? 'bg-zinc-100 text-zinc-400' : 'bg-blue-100 text-blue-750 font-bold' },
+                              { label: 'Stage', active: task.status === 'Review' || task.status === 'Done', style: (task.status === 'Review' || task.status === 'Done') ? 'bg-amber-100 text-amber-700 font-bold' : 'bg-zinc-100 text-zinc-400' },
+                              { label: 'Prod', active: task.status === 'Done', style: task.status === 'Done' ? 'bg-green-100 text-green-750 font-bold' : 'bg-zinc-100 text-zinc-400' }
+                            ].map(step => (
+                              <span key={step.label} className={`text-[8px] px-1 py-0.5 rounded ${step.style}`}>
+                                {step.label}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="flex justify-between items-center border-t border-zinc-100 pt-2 text-[10px]">
+                        <span className="text-zinc-400 font-mono text-[9px] truncate max-w-[90px]">{task.sprint}</span>
+                        <span className="text-zinc-950 font-bold">
+                          {task.assignedTo?.name ? task.assignedTo.name.split(' ')[0] : 'Sin asignar'}
+                        </span>
+                      </div>
+
+                      {currentUser?.role !== 'Viewer' && (
+                        <div className="flex gap-2 justify-end border-t border-zinc-50 pt-2 shrink-0">
+                          {col.status !== 'Todo' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const steps: ('Todo' | 'In-Progress' | 'Review' | 'Done')[] = ['Todo', 'In-Progress', 'Review', 'Done'];
+                                const prevIdx = steps.indexOf(col.status) - 1;
+                                handleMoveTask(task._id, steps[prevIdx]);
+                              }}
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-black transition-colors"
+                            >
+                              <ArrowLeft className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {col.status !== 'Done' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const steps: ('Todo' | 'In-Progress' | 'Review' | 'Done')[] = ['Todo', 'In-Progress', 'Review', 'Done'];
+                                const nextIdx = steps.indexOf(col.status) + 1;
+                                handleMoveTask(task._id, steps[nextIdx]);
+                              }}
+                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-black transition-colors"
+                            >
+                              <ArrowRight className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {colTasks.length === 0 && (
+                  <span className="text-[10px] text-zinc-400 block text-center py-8 italic bg-white border border-zinc-200 border-dashed rounded-md">
+                    Sin tareas en esta columna
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-8">
@@ -503,9 +1532,9 @@ export const Methodology: React.FC = () => {
       <div className="flex flex-col md:flex-row md:justify-between md:items-center border-b border-zinc-200 pb-6 gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-black tracking-tight font-sans">Metodología de Trabajo y Tareas</h1>
-          <p className="text-sm text-zinc-500 mt-1">Elige el marco metodológico y gestiona el tablero Kanban de entregas.</p>
+          <p className="text-sm text-zinc-500 mt-1">Elige el marco metodológico y gestiona el tablero de entregas.</p>
         </div>
-        
+
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <span className="text-xs font-mono text-zinc-400 uppercase">Marco Activo:</span>
@@ -531,7 +1560,10 @@ export const Methodology: React.FC = () => {
 
           {currentUser?.role !== 'Viewer' && (
             <button
-              onClick={() => setShowTaskModal(true)}
+              onClick={() => {
+                setTaskLinkedReqs([]);
+                setShowTaskModal(true);
+              }}
               className="flex items-center gap-2 bg-black text-white hover:bg-zinc-800 text-xs font-bold px-3 py-2 rounded transition-colors"
             >
               <Plus className="w-4 h-4" /> Crear Tarea
@@ -540,777 +1572,211 @@ export const Methodology: React.FC = () => {
         </div>
       </div>
 
-      {/* Dynamic Selector based on layout type */}
-      {(layout.type === 'scrum' || layout.type === 'hybrid') && (
-        <div className="flex items-center gap-4 bg-zinc-50 border border-zinc-200 rounded-lg p-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-zinc-500 uppercase">Sprint Activo:</span>
-            <select
-              value={activeSprint}
-              onChange={e => setActiveSprint(e.target.value)}
-              className="bg-white border border-zinc-200 rounded px-2.5 py-1 text-xs text-black font-semibold focus:outline-none focus:border-black cursor-pointer"
-            >
-              {Array.from(new Set(['Sprint 1', 'Sprint 2', 'Sprint 3', ...tasks.map(t => t.sprint).filter(s => s && s.startsWith('Sprint'))])).map(s => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-          <span className="text-xs text-zinc-400">|</span>
-          <span className="text-xs text-zinc-500 font-sans">
-            Muestra las tareas asociadas al sprint activo. Usa la columna izquierda para arrastrar desde el Product Backlog.
-          </span>
+      {/* Main Split Grid */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
+        {/* Left Column: Adaptive Requirement Panel (3 spans) */}
+        <div className="xl:col-span-3 space-y-6 bg-zinc-50/50 border border-zinc-200 rounded-lg p-5 shadow-sm">
+          {renderRequirementPanel()}
         </div>
-      )}
 
-      {layout.type === 'spiral' && (
-        <div className="flex items-center gap-4 bg-zinc-50 border border-zinc-200 rounded-lg p-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-zinc-500 uppercase">Iteración Activa:</span>
-            <select
-              value={activeIteration}
-              onChange={e => setActiveIteration(e.target.value)}
-              className="bg-white border border-zinc-200 rounded px-2.5 py-1 text-xs text-black font-semibold focus:outline-none focus:border-black cursor-pointer"
-            >
-              {SPIRAL_ITERATIONS.map(it => (
-                <option key={it} value={it}>{it}</option>
-              ))}
-            </select>
-          </div>
-          <span className="text-xs text-zinc-400">|</span>
-          <span className="text-xs text-zinc-500 font-sans">
-            Cada ciclo de la espiral evalúa riesgos y valida prototipos antes del siguiente ciclo.
-          </span>
-        </div>
-      )}
-
-      {layout.type === 'prototypes' && (
-        <div className="flex items-center gap-4 bg-zinc-50 border border-zinc-200 rounded-lg p-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-zinc-500 uppercase">Versión Activa:</span>
-            <select
-              value={activeVersion}
-              onChange={e => setActiveVersion(e.target.value)}
-              className="bg-white border border-zinc-200 rounded px-2.5 py-1 text-xs text-black font-semibold focus:outline-none focus:border-black cursor-pointer"
-            >
-              {PROTOTYPE_VERSIONS.map(v => (
-                <option key={v} value={v}>{v}</option>
-              ))}
-            </select>
-          </div>
-          <span className="text-xs text-zinc-400">|</span>
-          <span className="text-xs text-zinc-500 font-sans">
-            Visualiza el avance del prototipo actual. Construye rápido para validar con el usuario final.
-          </span>
-        </div>
-      )}
-
-      {/* Dynamic Methodology Details Guide Card */}
-      {METHODOLOGY_DETAILS[methodology] && (
-        <div className="bg-white border border-zinc-200 rounded-lg p-6 shadow-sm space-y-4 animate-fade-in">
-          <div className="flex items-start gap-4">
-            <div className="text-3xl bg-zinc-100 p-3 rounded-lg flex items-center justify-center">
-              {METHODOLOGY_DETAILS[methodology].icon}
-            </div>
-            <div className="space-y-1">
-              <h2 className="text-sm font-bold text-black flex items-center gap-2">
-                Guía Metodológica: {METHODOLOGY_DETAILS[methodology].name}
-              </h2>
-              <p className="text-xs text-zinc-500 leading-relaxed max-w-4xl">
-                {METHODOLOGY_DETAILS[methodology].description}
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 border-t border-zinc-150 pt-4">
-            {/* Cómo funciona */}
-            <div className="space-y-2">
-              <h3 className="text-[10px] font-extrabold text-zinc-400 uppercase font-mono tracking-wider">¿Cómo funciona?</h3>
-              <ul className="space-y-1.5">
-                {METHODOLOGY_DETAILS[methodology].howItWorks.map((step, idx) => (
-                  <li key={idx} className="text-xs text-zinc-700 flex items-start gap-2">
-                    <span className="text-zinc-400 select-none">•</span>
-                    <span>{step}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            {/* Cómo trabajan */}
-            <div className="space-y-2">
-              <h3 className="text-[10px] font-extrabold text-zinc-400 uppercase font-mono tracking-wider">¿Cómo trabajan?</h3>
-              <ul className="space-y-1.5">
-                {METHODOLOGY_DETAILS[methodology].howTheyWork.map((item, idx) => (
-                  <li key={idx} className="text-xs text-zinc-700 flex items-start gap-2">
-                    <span className="text-zinc-400 select-none">•</span>
-                    <span>{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          {/* Proposal / Academic Recommendation */}
-          <div className="bg-zinc-50 border-l-4 border-black p-4 rounded-r text-xs text-zinc-800 leading-relaxed shadow-sm">
-            💡 <strong className="text-black">Propuesta de Mejora / Recomendación Académica:</strong> {METHODOLOGY_DETAILS[methodology].recommendation}
-          </div>
-        </div>
-      )}
-
-      {/* RENDER VIEW: WATERFALL */}
-      {layout.type === 'waterfall' && (
-        <div className="space-y-6 animate-fade-in">
-          <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-4 flex items-center justify-between shadow-sm">
-            <span className="text-xs text-zinc-500 font-semibold flex items-center gap-1.5">
-              📈 Flujo Secuencial: Cada fase debe completarse al 100% para iniciar la siguiente.
-            </span>
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] font-mono text-zinc-400 uppercase">Progreso Global:</span>
-              <span className="text-xs font-bold text-black">
-                {Math.round((tasks.filter(t => t.status === 'Done').length / (tasks.length || 1)) * 100)}%
+        {/* Right Column: Execution Board & Workspace (9 spans) */}
+        <div className="xl:col-span-9 space-y-6">
+          {/* Active Selector Bar */}
+          {['Scrum', 'Agile', 'Hibrida', 'XP', 'DevOps'].includes(methodology) && (
+            <div className="flex items-center gap-4 bg-zinc-50 border border-zinc-200 rounded-lg p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-zinc-500 uppercase">Sprint Activo:</span>
+                <select
+                  value={activeSprint}
+                  onChange={e => setActiveSprint(e.target.value)}
+                  className="bg-white border border-zinc-200 rounded px-2.5 py-1 text-xs text-black font-semibold focus:outline-none focus:border-black cursor-pointer"
+                >
+                  {Array.from(new Set(['Sprint 1', 'Sprint 2', 'Sprint 3', ...tasks.map(t => t.sprint).filter(s => s && s.startsWith('Sprint'))])).map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+              <span className="text-xs text-zinc-400">|</span>
+              <span className="text-xs text-zinc-550 font-sans">
+                Muestra las tareas asociadas al sprint activo. Utiliza el panel izquierdo para vincular y asignar requerimientos.
               </span>
             </div>
-          </div>
+          )}
 
-          <div className="space-y-4">
-            {WATERFALL_PHASES.map((phase, idx) => {
-              const phaseTasks = tasks.filter(t => t.sprint === phase);
-              const completedTasks = phaseTasks.filter(t => t.status === 'Done').length;
-              const percent = phaseTasks.length ? Math.round((completedTasks / phaseTasks.length) * 100) : 0;
-              
-              // Warning if previous phase is not completed
-              let isLocked = false;
-              let unresolvedPrevPhase = '';
-              for (let i = 0; i < idx; i++) {
-                const prevPhase = WATERFALL_PHASES[i];
-                const prevTasks = tasks.filter(t => t.sprint === prevPhase);
-                const prevCompleted = prevTasks.filter(t => t.status === 'Done').length;
-                if (prevTasks.length > 0 && prevCompleted < prevTasks.length) {
-                  isLocked = true;
-                  unresolvedPrevPhase = prevPhase;
-                  break;
-                }
-              }
-
-              return (
-                <div key={phase} className={`border rounded-lg p-5 bg-white transition-all shadow-sm ${isLocked ? 'opacity-65 border-zinc-200 bg-zinc-50/50' : 'border-zinc-200 hover:border-zinc-300'}`}>
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-3 border-b border-zinc-100">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-extrabold px-2 py-0.5 bg-black text-white rounded">
-                        Fase {idx + 1}
-                      </span>
-                      <h3 className="text-xs font-bold text-black">{phase.replace(/Fase \d+: /, '')}</h3>
-                      {isLocked && (
-                        <span className="text-[10px] bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded font-mono font-semibold">
-                          ⚠️ Bloqueado por {unresolvedPrevPhase.replace(/Fase \d+: /, '')}
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                      <div className="w-24 bg-zinc-150 rounded-full h-1.5 overflow-hidden">
-                        <div className="bg-black h-1.5 transition-all duration-300" style={{ width: `${percent}%` }} />
-                      </div>
-                      <span className="text-xs font-mono text-zinc-700 font-bold">{percent}% ({completedTasks}/{phaseTasks.length})</span>
-                    </div>
-                  </div>
-
-                  {/* Tasks List */}
-                  <div className="mt-4 space-y-2">
-                    {phaseTasks.map(task => (
-                      <div key={task._id} className="flex items-center justify-between p-3 bg-zinc-50 border border-zinc-200 rounded-md hover:border-zinc-300 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="checkbox"
-                            disabled={currentUser?.role === 'Viewer' || isLocked}
-                            checked={task.status === 'Done'}
-                            onChange={async () => {
-                              const nextStatus = task.status === 'Done' ? 'Todo' : 'Done';
-                              await handleMoveTask(task._id, nextStatus);
-                            }}
-                            className="rounded border-zinc-300 text-black focus:ring-black w-4 h-4 cursor-pointer disabled:cursor-not-allowed"
-                          />
-                          <div>
-                            <span className={`text-xs font-semibold block ${task.status === 'Done' ? 'line-through text-zinc-400 font-normal' : 'text-black'}`}>
-                              {task.title}
-                            </span>
-                            <p className="text-[10px] text-zinc-500 line-clamp-1">{task.description}</p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-4">
-                          <span className="text-[10px] font-medium text-zinc-600">
-                            {task.assignedTo?.name ? task.assignedTo.name.split(' ')[0] : 'Sin asignar'}
-                          </span>
-                          {currentUser?.role !== 'Viewer' && (
-                            <button
-                              onClick={() => handleDeleteTask(task._id)}
-                              className="text-zinc-300 hover:text-red-600 transition-colors"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-
-                    {phaseTasks.length === 0 && (
-                      <div className="text-center py-6 border border-dashed border-zinc-200 rounded-md text-[10px] text-zinc-400 italic">
-                        Sin tareas planificadas para esta fase.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* RENDER VIEW: SCRUM */}
-      {layout.type === 'scrum' && (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start animate-fade-in">
-          {/* Left Column: Product Backlog Sidebar */}
-          <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-4 flex flex-col min-h-[500px]">
-            <div className="pb-3 border-b border-zinc-200 mb-4 flex justify-between items-center">
-              <span className="text-xs font-extrabold text-black uppercase font-mono">Product Backlog</span>
-              <span className="text-[10px] bg-white border border-zinc-250 font-bold px-2 py-0.5 rounded-full text-zinc-700">
-                {tasks.filter(t => t.sprint === 'Backlog' || t.sprint === 'General' || t.sprint !== activeSprint).length}
+          {['Waterfall', 'RUP'].includes(methodology) && (
+            <div className="flex items-center gap-4 bg-zinc-50 border border-zinc-200 rounded-lg p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-zinc-500 uppercase">Fase Activa:</span>
+                <select
+                  value={activePhase}
+                  onChange={e => {
+                    setActivePhase(e.target.value);
+                    setTaskSprint(e.target.value);
+                  }}
+                  className="bg-white border border-zinc-200 rounded px-2.5 py-1 text-xs text-black font-semibold focus:outline-none focus:border-black cursor-pointer"
+                >
+                  {methodology === 'Waterfall'
+                    ? WATERFALL_PHASES.map(p => <option key={p} value={p}>{p}</option>)
+                    : ['Inicio', 'Elaboración', 'Construcción', 'Transición'].map(p => <option key={p} value={p}>{p}</option>)
+                  }
+                </select>
+              </div>
+              <span className="text-xs text-zinc-400">|</span>
+              <span className="text-xs text-zinc-550 font-sans">
+                Visualiza las tareas de la fase de ingeniería seleccionada. El flujo está gobernado por el orden del ciclo de vida.
               </span>
             </div>
+          )}
 
-            <div className="space-y-3 flex-1 overflow-y-auto">
-              {tasks
-                .filter(t => t.sprint === 'Backlog' || t.sprint === 'General' || t.sprint !== activeSprint)
-                .map(task => (
-                  <div key={task._id} className="bg-white border border-zinc-200 rounded-md p-3 shadow-sm hover:border-zinc-300 transition-colors space-y-2">
-                    <div className="flex justify-between items-start gap-1">
-                      <span className="text-xs font-bold text-black leading-tight block">{task.title}</span>
-                      {currentUser?.role !== 'Viewer' && (
-                        <button onClick={() => handleDeleteTask(task._id)} className="text-zinc-300 hover:text-red-600 shrink-0">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                    <p className="text-[10px] text-zinc-500 line-clamp-2">{task.description}</p>
-                    <div className="flex justify-between items-center pt-2 border-t border-zinc-50">
-                      <span className="text-[8px] font-mono bg-zinc-100 text-zinc-500 px-1 py-0.5 rounded">
-                        {task.sprint}
-                      </span>
-                      {currentUser?.role !== 'Viewer' && (
-                        <button
-                          onClick={async () => {
-                            const response = await fetch(`${API_URL}/tasks/${task._id}`, {
-                              method: 'PUT',
-                              headers: { ...headers, 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ sprint: activeSprint })
-                            });
-                            if (response.ok) fetchTasks();
-                          }}
-                          className="text-[9px] bg-black text-white hover:bg-zinc-800 px-2 py-0.5 rounded font-bold transition-colors"
-                        >
-                          Llevar a Sprint
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              {tasks.filter(t => t.sprint === 'Backlog' || t.sprint === 'General' || t.sprint !== activeSprint).length === 0 && (
-                <span className="text-[10px] text-zinc-400 block text-center py-8 italic">Backlog vacío</span>
-              )}
+          {methodology === 'Espiral' && (
+            <div className="flex items-center gap-4 bg-zinc-50 border border-zinc-200 rounded-lg p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-zinc-500 uppercase">Iteración Activa:</span>
+                <select
+                  value={activeIteration}
+                  onChange={e => {
+                    setActiveIteration(e.target.value);
+                    setTaskSprint(e.target.value);
+                  }}
+                  className="bg-white border border-zinc-200 rounded px-2.5 py-1 text-xs text-black font-semibold focus:outline-none focus:border-black cursor-pointer"
+                >
+                  {SPIRAL_ITERATIONS.map(it => (
+                    <option key={it} value={it}>{it}</option>
+                  ))}
+                </select>
+              </div>
+              <span className="text-xs text-zinc-400">|</span>
+              <span className="text-xs text-zinc-550 font-sans">
+                Cada ciclo de la espiral evalúa riesgos y diseña planes de mitigación correspondientes.
+              </span>
             </div>
-          </div>
+          )}
 
-          {/* Right Columns: Sprint Kanban Board */}
-          <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
-            {layout.columns?.map(col => {
-              const colTasks = tasks.filter(t => t.status === col.status && t.sprint === activeSprint);
-              return (
-                <div key={col.status} className="bg-zinc-100 rounded-lg p-3 border border-zinc-200 min-h-[500px] flex flex-col">
-                  <div className="flex justify-between items-center mb-4 pb-2 border-b border-zinc-200">
-                    <span className="text-xs font-extrabold text-black uppercase font-mono">{col.name}</span>
-                    <span className="text-[10px] bg-white border border-zinc-250 font-bold px-2 py-0.5 rounded-full text-zinc-700">
-                      {colTasks.length}
-                    </span>
-                  </div>
+          {methodology === 'Prototipos' && (
+            <div className="flex items-center gap-4 bg-zinc-50 border border-zinc-200 rounded-lg p-4 shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-zinc-500 uppercase">Versión Activa:</span>
+                <select
+                  value={activeVersion}
+                  onChange={e => {
+                    setActiveVersion(e.target.value);
+                    setTaskSprint(e.target.value);
+                  }}
+                  className="bg-white border border-zinc-200 rounded px-2.5 py-1 text-xs text-black font-semibold focus:outline-none focus:border-black cursor-pointer"
+                >
+                  {PROTOTYPE_VERSIONS.map(v => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+              </div>
+              <span className="text-xs text-zinc-400">|</span>
+              <span className="text-xs text-zinc-550 font-sans">
+                Define las maquetas rápidas para pruebas de usabilidad y feedback de clientes.
+              </span>
+            </div>
+          )}
 
-                  <div className="space-y-3 flex-1 overflow-y-auto">
-                    {colTasks.map(task => (
-                      <div key={task._id} className="bg-white border border-zinc-200 rounded-md p-3.5 shadow-sm space-y-3 hover:border-zinc-350 transition-colors">
-                        <div>
-                          <div className="flex justify-between items-start gap-1">
-                            <span className="text-xs font-bold text-black font-sans leading-tight block">{task.title}</span>
-                            {currentUser?.role !== 'Viewer' && (
-                              <button onClick={() => handleDeleteTask(task._id)} className="text-zinc-300 hover:text-red-600 shrink-0">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                          <p className="text-[10px] text-zinc-500 mt-1 line-clamp-2">{task.description}</p>
-                        </div>
+          {/* Guide Card info */}
+          {METHODOLOGY_DETAILS[methodology] && (
+            <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm space-y-3">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">{METHODOLOGY_DETAILS[methodology].icon}</span>
+                <h4 className="text-xs font-bold text-black uppercase font-mono tracking-wider">{METHODOLOGY_DETAILS[methodology].name}</h4>
+              </div>
+              <p className="text-[11px] text-zinc-500 leading-relaxed">{METHODOLOGY_DETAILS[methodology].description}</p>
+            </div>
+          )}
 
-                        <div className="flex justify-between items-center border-t border-zinc-100 pt-2.5">
-                          {currentUser?.role !== 'Viewer' && (
-                            <button
-                              onClick={async () => {
-                                const response = await fetch(`${API_URL}/tasks/${task._id}`, {
-                                  method: 'PUT',
-                                  headers: { ...headers, 'Content-Type': 'application/json' },
-                                  body: JSON.stringify({ sprint: 'Backlog' })
-                                });
-                                if (response.ok) fetchTasks();
-                              }}
-                              className="text-[9px] text-zinc-400 hover:text-black font-semibold transition-colors"
-                              title="Retornar a Backlog"
-                            >
-                              ➔ Backlog
-                            </button>
-                          )}
-                          <span className="text-[10px] font-semibold text-zinc-950 truncate max-w-[80px]">
-                            {task.assignedTo?.name ? task.assignedTo.name.split(' ')[0] : 'Sin asignar'}
-                          </span>
-                        </div>
+          {/* Methodology Specific Workspaces */}
+          {renderMethodologyWorkspaces()}
 
-                        {currentUser?.role !== 'Viewer' && (
-                          <div className="flex gap-2 justify-end border-t border-zinc-50 pt-2 shrink-0">
-                            {col.status !== 'Todo' && (
-                              <button
-                                onClick={() => {
-                                  const steps: ('Todo' | 'In-Progress' | 'Review' | 'Done')[] = ['Todo', 'In-Progress', 'Review', 'Done'];
-                                  const prevIdx = steps.indexOf(col.status) - 1;
-                                  handleMoveTask(task._id, steps[prevIdx]);
-                                }}
-                                className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-black"
-                              >
-                                <ArrowLeft className="w-3 h-3" />
-                              </button>
-                            )}
-                            {col.status !== 'Done' && (
-                              <button
-                                onClick={() => {
-                                  const steps: ('Todo' | 'In-Progress' | 'Review' | 'Done')[] = ['Todo', 'In-Progress', 'Review', 'Done'];
-                                  const nextIdx = steps.indexOf(col.status) + 1;
-                                  handleMoveTask(task._id, steps[nextIdx]);
-                                }}
-                                className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-black"
-                              >
-                                <ArrowRight className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-
-                    {colTasks.length === 0 && (
-                      <span className="text-[10px] text-zinc-400 block text-center py-8 italic">Sin tareas</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          {/* Main Task Kanban Board */}
+          {renderTaskBoard()}
         </div>
-      )}
+      </div>
 
-      {/* RENDER VIEW: ESPIRAL */}
-      {layout.type === 'spiral' && (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-start animate-fade-in">
-          {/* Main 4 Spiral Quadrant columns */}
-          <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
-            {layout.columns?.map(col => {
-              const colTasks = tasks.filter(t => t.status === col.status && t.sprint === activeIteration);
-              return (
-                <div key={col.status} className="bg-zinc-100 rounded-lg p-3 border border-zinc-200 min-h-[500px] flex flex-col">
-                  <div className="flex justify-between items-center mb-4 pb-2 border-b border-zinc-200">
-                    <span className="text-xs font-extrabold text-black uppercase font-mono">{col.name}</span>
-                    <span className="text-[10px] bg-white border border-zinc-250 font-bold px-2 py-0.5 rounded-full text-zinc-700">
-                      {colTasks.length}
-                    </span>
-                  </div>
+      {/* Change Request Modal (Waterfall Scope Control) */}
+      {showChangeRequestModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white border border-zinc-200 rounded-lg p-6 max-w-md w-full shadow-xl space-y-4">
+            <div className="flex items-center gap-2 text-red-750 pb-2 border-b border-zinc-150">
+              <AlertTriangle className="w-5 h-5" />
+              <h3 className="text-sm font-bold text-black uppercase font-mono">Control de Cambios - Línea Base Activada</h3>
+            </div>
 
-                  <div className="space-y-3 flex-1 overflow-y-auto">
-                    {colTasks.map(task => (
-                      <div key={task._id} className="bg-white border border-zinc-200 rounded-md p-3.5 shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
-                        <div>
-                          <div className="flex justify-between items-start gap-1">
-                            <span className="text-xs font-bold text-black font-sans leading-tight block">{task.title}</span>
-                            {currentUser?.role !== 'Viewer' && (
-                              <button onClick={() => handleDeleteTask(task._id)} className="text-zinc-300 hover:text-red-600 shrink-0">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                          <p className="text-[10px] text-zinc-500 mt-1 line-clamp-2">{task.description}</p>
-                        </div>
-
-                        <div className="flex justify-between items-center border-t border-zinc-100 pt-2.5">
-                          <span className="text-[9px] font-mono bg-zinc-50 text-zinc-500 px-1.5 py-0.5 rounded">{task.sprint}</span>
-                          <span className="text-[10px] font-semibold text-zinc-950 truncate max-w-[80px]">
-                            {task.assignedTo?.name ? task.assignedTo.name.split(' ')[0] : 'Sin asignar'}
-                          </span>
-                        </div>
-
-                        {currentUser?.role !== 'Viewer' && (
-                          <div className="flex gap-2 justify-end border-t border-zinc-50 pt-2 shrink-0">
-                            {col.status !== 'Todo' && (
-                              <button
-                                onClick={() => {
-                                  const steps: ('Todo' | 'In-Progress' | 'Review' | 'Done')[] = ['Todo', 'In-Progress', 'Review', 'Done'];
-                                  const prevIdx = steps.indexOf(col.status) - 1;
-                                  handleMoveTask(task._id, steps[prevIdx]);
-                                }}
-                                className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-black"
-                              >
-                                <ArrowLeft className="w-3 h-3" />
-                              </button>
-                            )}
-                            {col.status !== 'Done' && (
-                              <button
-                                onClick={() => {
-                                  const steps: ('Todo' | 'In-Progress' | 'Review' | 'Done')[] = ['Todo', 'In-Progress', 'Review', 'Done'];
-                                  const nextIdx = steps.indexOf(col.status) + 1;
-                                  handleMoveTask(task._id, steps[nextIdx]);
-                                }}
-                                className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-black"
-                              >
-                                <ArrowRight className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-
-                    {colTasks.length === 0 && (
-                      <span className="text-[10px] text-zinc-400 block text-center py-8 italic">Sin tareas</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Right Column: Risk Mitigation Register */}
-          <div className="bg-zinc-50 border border-zinc-200 rounded-lg p-5 space-y-4">
-            <h3 className="text-xs font-extrabold text-black uppercase font-mono pb-2 border-b border-zinc-200">
-              🌀 Plan de Riesgos ({activeIteration})
-            </h3>
-            <p className="text-[10px] text-zinc-500 leading-relaxed">
-              La metodología en Espiral exige documentar y mitigar activamente los riesgos técnicos en cada iteración.
+            <p className="text-xs text-zinc-550 leading-relaxed">
+              La edición de requerimientos y tareas asociadas está bloqueada por la línea base de este proyecto en Cascada.
+              Para realizar esta acción, ingrese el código de autorización de la solicitud de cambio (Change Request).
             </p>
+
             <div className="space-y-2">
-              <label className="block text-[9px] font-mono text-zinc-400 uppercase">Riesgos y Mitigación</label>
-              <textarea
-                value={spiralRisk}
-                onChange={e => setSpiralRisk(e.target.value)}
-                placeholder="Ej: Riesgo de que la API de OpenAI falle por cuota. Mitigación: Implementar reintentos y caché local..."
-                className="w-full bg-white border border-zinc-200 rounded p-2 text-xs text-black focus:outline-none focus:border-black h-48 resize-none shadow-inner"
+              <label className="block text-[10px] font-mono text-zinc-400 uppercase">Código de Cambio (CR-XXX)</label>
+              <input
+                type="text"
+                required
+                value={changeRequestCode}
+                onChange={e => setChangeRequestCode(e.target.value)}
+                placeholder="Ej: CR-101"
+                className="w-full bg-white border border-zinc-200 rounded px-3 py-1.5 text-xs text-black font-semibold focus:outline-none focus:border-black uppercase"
               />
             </div>
-            <button
-              onClick={handleSaveRisk}
-              className="w-full bg-black text-white hover:bg-zinc-800 text-xs font-bold py-2 rounded transition-colors"
-            >
-              Guardar Riesgos
-            </button>
-          </div>
-        </div>
-      )}
 
-      {/* RENDER VIEW: PROTOTIPOS */}
-      {layout.type === 'prototypes' && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-start animate-fade-in">
-          {layout.columns?.map(col => {
-            const colTasks = tasks.filter(t => t.status === col.status && t.sprint === activeVersion);
-            return (
-              <div key={col.status} className="bg-zinc-100 rounded-lg p-4 border border-zinc-200 min-h-[500px] flex flex-col">
-                <div className="flex justify-between items-center mb-4 pb-2 border-b border-zinc-200">
-                  <span className="text-xs font-extrabold text-black uppercase font-mono">{col.name}</span>
-                  <span className="text-[10px] bg-white border border-zinc-250 font-bold px-2 py-0.5 rounded-full text-zinc-700">
-                    {colTasks.length}
-                  </span>
-                </div>
-
-                <div className="space-y-3 flex-1 overflow-y-auto">
-                  {colTasks.map(task => (
-                    <div key={task._id} className="bg-white border border-zinc-200 rounded-md p-4 shadow-sm space-y-3 hover:border-zinc-400 transition-colors">
-                      <div>
-                        <div className="flex justify-between items-start gap-1">
-                          <span className="text-xs font-bold text-black font-sans leading-tight block">{task.title}</span>
-                          {currentUser?.role !== 'Viewer' && (
-                            <button onClick={() => handleDeleteTask(task._id)} className="text-zinc-300 hover:text-red-600 shrink-0">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-zinc-500 mt-1 line-clamp-2">{task.description}</p>
-                      </div>
-
-                      <div className="flex justify-between items-center border-t border-zinc-100 pt-3">
-                        <span className="text-[9px] font-mono bg-zinc-50 text-zinc-500 px-1.5 py-0.5 rounded">{task.sprint}</span>
-                        <span className="text-[10px] font-semibold text-zinc-950 truncate max-w-[80px]">
-                          {task.assignedTo?.name ? task.assignedTo.name.split(' ')[0] : 'Sin asignar'}
-                        </span>
-                      </div>
-
-                      {currentUser?.role !== 'Viewer' && (
-                        <div className="flex gap-2 justify-end border-t border-zinc-50 pt-2 shrink-0">
-                          {col.status !== 'Todo' && (
-                            <button
-                              onClick={() => {
-                                const steps: ('Todo' | 'In-Progress' | 'Review' | 'Done')[] = ['Todo', 'In-Progress', 'Review', 'Done'];
-                                const prevIdx = steps.indexOf(col.status) - 1;
-                                handleMoveTask(task._id, steps[prevIdx]);
-                              }}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-black"
-                            >
-                              <ArrowLeft className="w-3 h-3" />
-                            </button>
-                          )}
-                          {col.status !== 'Done' && (
-                            <button
-                              onClick={() => {
-                                const steps: ('Todo' | 'In-Progress' | 'Review' | 'Done')[] = ['Todo', 'In-Progress', 'Review', 'Done'];
-                                const nextIdx = steps.indexOf(col.status) + 1;
-                                handleMoveTask(task._id, steps[nextIdx]);
-                              }}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-black"
-                            >
-                              <ArrowRight className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                  {colTasks.length === 0 && (
-                    <span className="text-[10px] text-zinc-400 block text-center py-8 italic">Sin tareas</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* RENDER VIEW: HIBRIDA */}
-      {layout.type === 'hybrid' && (
-        <div className="space-y-8 animate-fade-in">
-          {/* Gantt-like High Level Roadmap */}
-          <div className="bg-white border border-zinc-200 rounded-lg p-5 shadow-sm space-y-4">
-            <h3 className="text-xs font-extrabold text-black uppercase font-mono pb-2 border-b border-zinc-150">
-              📍 Cronograma / Hitos de Alto Nivel (Cascada)
-            </h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-2">
-              {[
-                { name: 'Hito 1: Requisitos', desc: 'Levantamiento & ADRs iniciales', status: 'Done', color: 'bg-green-500 border-green-600' },
-                { name: 'Hito 2: MVP Base', desc: 'Dashboard y Frontend Integrado', status: 'In-Progress', color: 'bg-amber-500 border-amber-600 animate-pulse' },
-                { name: 'Hito 3: QA & Pruebas', desc: 'Pruebas de estrés y seguridad', status: 'Todo', color: 'bg-zinc-300 border-zinc-400' },
-                { name: 'Hito 4: Puesta en Marcha', desc: 'Despliegue y producción final', status: 'Todo', color: 'bg-zinc-300 border-zinc-400' },
-              ].map((h, idx) => (
-                <div key={idx} className="bg-zinc-50 border border-zinc-200 rounded-md p-3 flex items-start gap-3">
-                  <div className={`w-3.5 h-3.5 rounded-full border mt-0.5 flex items-center justify-center text-[8px] text-white font-bold ${h.color}`}>
-                    {h.status === 'Done' && '✓'}
-                  </div>
-                  <div>
-                    <h4 className="text-xs font-bold text-black leading-tight">{h.name}</h4>
-                    <p className="text-[10px] text-zinc-500 mt-0.5 leading-snug">{h.desc}</p>
-                    <span className={`text-[8px] font-mono font-bold uppercase mt-1.5 inline-block px-1.5 py-0.5 rounded ${h.status === 'Done' ? 'bg-green-50 text-green-700' : h.status === 'In-Progress' ? 'bg-amber-50 text-amber-700' : 'bg-zinc-100 text-zinc-600'}`}>
-                      {h.status === 'Done' ? 'Completado' : h.status === 'In-Progress' ? 'En Curso' : 'Pendiente'}
-                    </span>
-                  </div>
-                </div>
-              ))}
+            <div className="flex gap-2 justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowChangeRequestModal(false);
+                  (window as any)._pendingReqAction = null;
+                  setChangeRequestCode('');
+                }}
+                className="px-3 py-1.5 text-xs text-zinc-500 hover:text-black font-semibold transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteChangeRequest}
+                disabled={!changeRequestCode.trim()}
+                className="bg-black text-white hover:bg-zinc-800 text-xs font-bold px-4 py-1.5 rounded transition-colors disabled:opacity-50"
+              >
+                Autorizar Cambios
+              </button>
             </div>
           </div>
-
-          {/* Sprints Board below */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-start">
-            {layout.columns?.map(col => {
-              const colTasks = tasks.filter(t => t.status === col.status && t.sprint === activeSprint);
-              return (
-                <div key={col.status} className="bg-zinc-100 rounded-lg p-3 border border-zinc-200 min-h-[500px] flex flex-col">
-                  <div className="flex justify-between items-center mb-4 pb-2 border-b border-zinc-200">
-                    <span className="text-xs font-extrabold text-black uppercase font-mono">{col.name}</span>
-                    <span className="text-[10px] bg-white border border-zinc-250 font-bold px-2 py-0.5 rounded-full text-zinc-700">
-                      {colTasks.length}
-                    </span>
-                  </div>
-
-                  <div className="space-y-3 flex-1 overflow-y-auto">
-                    {colTasks.map(task => (
-                      <div key={task._id} className="bg-white border border-zinc-200 rounded-md p-3.5 shadow-sm space-y-3 hover:border-zinc-300 transition-colors">
-                        <div>
-                          <div className="flex justify-between items-start gap-1">
-                            <span className="text-xs font-bold text-black font-sans leading-tight block">{task.title}</span>
-                            {currentUser?.role !== 'Viewer' && (
-                              <button onClick={() => handleDeleteTask(task._id)} className="text-zinc-300 hover:text-red-600 shrink-0">
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                          <p className="text-[10px] text-zinc-500 mt-1 line-clamp-2">{task.description}</p>
-                        </div>
-
-                        <div className="flex justify-between items-center border-t border-zinc-100 pt-2.5">
-                          <span className="text-[9px] font-mono bg-zinc-50 text-zinc-500 px-1 py-0.5 rounded">{task.sprint}</span>
-                          <span className="text-[10px] font-semibold text-zinc-950 truncate max-w-[80px]">
-                            {task.assignedTo?.name ? task.assignedTo.name.split(' ')[0] : 'Sin asignar'}
-                          </span>
-                        </div>
-
-                        {currentUser?.role !== 'Viewer' && (
-                          <div className="flex gap-2 justify-end border-t border-zinc-50 pt-2 shrink-0">
-                            {col.status !== 'Todo' && (
-                              <button
-                                onClick={() => {
-                                  const steps: ('Todo' | 'In-Progress' | 'Review' | 'Done')[] = ['Todo', 'In-Progress', 'Review', 'Done'];
-                                  const prevIdx = steps.indexOf(col.status) - 1;
-                                  handleMoveTask(task._id, steps[prevIdx]);
-                                }}
-                                className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-black"
-                              >
-                                <ArrowLeft className="w-3 h-3" />
-                              </button>
-                            )}
-                            {col.status !== 'Done' && (
-                              <button
-                                onClick={() => {
-                                  const steps: ('Todo' | 'In-Progress' | 'Review' | 'Done')[] = ['Todo', 'In-Progress', 'Review', 'Done'];
-                                  const nextIdx = steps.indexOf(col.status) + 1;
-                                  handleMoveTask(task._id, steps[nextIdx]);
-                                }}
-                                className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-black"
-                              >
-                                <ArrowRight className="w-3 h-3" />
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-
-                    {colTasks.length === 0 && (
-                      <span className="text-[10px] text-zinc-400 block text-center py-8 italic">Sin tareas</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* RENDER VIEW: KANBAN / DEFAULT */}
-      {layout.type === 'kanban' && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 items-start animate-fade-in">
-          {layout.columns?.map(col => {
-            const colTasks = tasks.filter(t => t.status === col.status);
-            return (
-              <div key={col.status} className="bg-zinc-100 rounded-lg p-4 border border-zinc-200 min-h-[500px] flex flex-col">
-                <div className="flex justify-between items-center mb-4 pb-2 border-b border-zinc-200">
-                  <span className="text-xs font-extrabold text-black uppercase font-mono">{col.name}</span>
-                  <span className="text-[10px] bg-white border border-zinc-250 font-bold px-2 py-0.5 rounded-full text-zinc-700">
-                    {colTasks.length}
-                  </span>
-                </div>
-
-                <div className="space-y-3 flex-1 overflow-y-auto">
-                  {colTasks.map(task => (
-                    <div key={task._id} className="bg-white border border-zinc-200 rounded-md p-4 shadow-sm space-y-3 hover:border-zinc-400 transition-colors">
-                      <div>
-                        <div className="flex justify-between items-start gap-1">
-                          <span className="text-xs font-bold text-black font-sans leading-tight block">{task.title}</span>
-                          {currentUser?.role !== 'Viewer' && (
-                            <button onClick={() => handleDeleteTask(task._id)} className="text-zinc-300 hover:text-red-600 shrink-0">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-zinc-500 mt-1 line-clamp-2">{task.description}</p>
-                      </div>
-
-                      <div className="flex justify-between items-center border-t border-zinc-100 pt-3">
-                        <span className="text-[9px] font-mono bg-zinc-50 text-zinc-500 px-1.5 py-0.5 rounded">{task.sprint}</span>
-                        <span className="text-[10px] font-semibold text-zinc-950 truncate max-w-[80px]">
-                          {task.assignedTo?.name ? task.assignedTo.name.split(' ')[0] : 'Sin asignar'}
-                        </span>
-                      </div>
-
-                      {currentUser?.role !== 'Viewer' && (
-                        <div className="flex gap-2 justify-end border-t border-zinc-50 pt-2 shrink-0">
-                          {col.status !== 'Todo' && (
-                            <button
-                              onClick={() => {
-                                const steps: ('Todo' | 'In-Progress' | 'Review' | 'Done')[] = ['Todo', 'In-Progress', 'Review', 'Done'];
-                                const prevIdx = steps.indexOf(col.status) - 1;
-                                handleMoveTask(task._id, steps[prevIdx]);
-                              }}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-black"
-                            >
-                              <ArrowLeft className="w-3 h-3" />
-                            </button>
-                          )}
-                          {col.status !== 'Done' && (
-                            <button
-                              onClick={() => {
-                                const steps: ('Todo' | 'In-Progress' | 'Review' | 'Done')[] = ['Todo', 'In-Progress', 'Review', 'Done'];
-                                const nextIdx = steps.indexOf(col.status) + 1;
-                                handleMoveTask(task._id, steps[nextIdx]);
-                              }}
-                              className="p-1 hover:bg-zinc-100 rounded text-zinc-400 hover:text-black"
-                            >
-                              <ArrowRight className="w-3 h-3" />
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                  {colTasks.length === 0 && (
-                    <span className="text-[10px] text-zinc-400 block text-center py-8 italic">Sin tareas</span>
-                  )}
-                </div>
-              </div>
-            );
-          })}
         </div>
       )}
 
       {/* Task Creation Modal */}
       {showTaskModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-20 flex items-center justify-center p-4 z-50 animate-fade-in">
+        <div className="fixed inset-0 bg-black/35 flex items-center justify-center p-4 z-50 animate-fade-in">
           <div className="bg-white border border-zinc-200 rounded-lg p-6 max-w-md w-full shadow-lg">
-            <h3 className="text-base font-bold text-black mb-4">Crear Nueva Tarea</h3>
+            <h3 className="text-sm font-bold text-black mb-4 uppercase font-mono border-b border-zinc-150 pb-2">Crear Nueva Tarea</h3>
             <form onSubmit={handleAddTask} className="space-y-4">
               <div>
-                <label className="block text-xs font-mono text-zinc-400 uppercase mb-1">Título de la Tarea</label>
+                <label className="block text-[10px] font-mono text-zinc-400 uppercase mb-1">Título de la Tarea</label>
                 <input
                   type="text"
                   required
                   value={taskTitle}
                   onChange={e => setTaskTitle(e.target.value)}
                   placeholder="Ej: Levantar arquitectura base"
-                  className="w-full bg-white border border-zinc-200 rounded px-3 py-1.5 text-sm text-black focus:outline-none focus:border-black placeholder-zinc-300"
+                  className="w-full bg-white border border-zinc-200 rounded px-3 py-1.5 text-xs text-black focus:outline-none focus:border-black placeholder-zinc-300 font-medium"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-mono text-zinc-400 uppercase mb-1">Descripción de la Tarea</label>
+                <label className="block text-[10px] font-mono text-zinc-400 uppercase mb-1">Descripción</label>
                 <textarea
                   value={taskDesc}
                   onChange={e => setTaskDesc(e.target.value)}
                   placeholder="Especifica el alcance y los entregables..."
-                  className="w-full bg-white border border-zinc-200 rounded px-3 py-1.5 text-sm text-black focus:outline-none focus:border-black placeholder-zinc-300 h-20 resize-none"
+                  className="w-full bg-white border border-zinc-200 rounded px-3 py-1.5 text-xs text-black focus:outline-none focus:border-black placeholder-zinc-300 h-16 resize-none font-medium"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-mono text-zinc-400 uppercase mb-1">Asignada A</label>
+                  <label className="block text-[10px] font-mono text-zinc-400 uppercase mb-1">Asignada A</label>
                   <select
                     value={taskAssignedTo}
                     onChange={e => setTaskAssignedTo(e.target.value)}
@@ -1326,38 +1792,31 @@ export const Methodology: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-mono text-zinc-400 uppercase mb-1">Estado Inicial</label>
+                  <label className="block text-[10px] font-mono text-zinc-400 uppercase mb-1">Estado Inicial</label>
                   <select
                     value={taskStatus}
                     onChange={e => setTaskStatus(e.target.value as any)}
                     className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-black focus:outline-none focus:border-black cursor-pointer font-semibold"
                   >
-                    {layout.columns ? (
-                      layout.columns.map(col => (
-                        <option key={col.status} value={col.status}>{col.name}</option>
-                      ))
-                    ) : (
-                      <>
-                        <option value="Todo">Por Hacer</option>
-                        <option value="In-Progress">En Progreso</option>
-                        <option value="Review">En Revisión</option>
-                        <option value="Done">Finalizado</option>
-                      </>
-                    )}
+                    <option value="Todo">Por Hacer</option>
+                    <option value="In-Progress">En Desarrollo</option>
+                    <option value="Review">En Revisión</option>
+                    <option value="Done">Finalizado</option>
                   </select>
                 </div>
 
                 <div className="col-span-2">
-                  <label className="block text-xs font-mono text-zinc-400 uppercase mb-1">Sprint / Hito / Iteración / Versión</label>
-                  {methodology === 'Waterfall' ? (
+                  <label className="block text-[10px] font-mono text-zinc-400 uppercase mb-1">Sprint / Hito / Iteración / Versión</label>
+                  {['Waterfall', 'RUP'].includes(methodology) ? (
                     <select
                       value={taskSprint}
                       onChange={e => setTaskSprint(e.target.value)}
                       className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-black focus:outline-none focus:border-black font-semibold cursor-pointer"
                     >
-                      {WATERFALL_PHASES.map(p => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
+                      {methodology === 'Waterfall'
+                        ? WATERFALL_PHASES.map(p => <option key={p} value={p}>{p}</option>)
+                        : ['Inicio', 'Elaboración', 'Construcción', 'Transición'].map(p => <option key={p} value={p}>{p}</option>)
+                      }
                     </select>
                   ) : methodology === 'Espiral' ? (
                     <select
@@ -1365,9 +1824,7 @@ export const Methodology: React.FC = () => {
                       onChange={e => setTaskSprint(e.target.value)}
                       className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-black focus:outline-none focus:border-black font-semibold cursor-pointer"
                     >
-                      {SPIRAL_ITERATIONS.map(p => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
+                      {SPIRAL_ITERATIONS.map(p => <option key={p} value={p}>{p}</option>)}
                     </select>
                   ) : methodology === 'Prototipos' ? (
                     <select
@@ -1375,9 +1832,7 @@ export const Methodology: React.FC = () => {
                       onChange={e => setTaskSprint(e.target.value)}
                       className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-black focus:outline-none focus:border-black font-semibold cursor-pointer"
                     >
-                      {PROTOTYPE_VERSIONS.map(p => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
+                      {PROTOTYPE_VERSIONS.map(p => <option key={p} value={p}>{p}</option>)}
                     </select>
                   ) : (
                     <input
@@ -1386,23 +1841,50 @@ export const Methodology: React.FC = () => {
                       value={taskSprint}
                       onChange={e => setTaskSprint(e.target.value)}
                       placeholder="Ej: Sprint 1 o Backlog"
-                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-black focus:outline-none focus:border-black placeholder-zinc-300"
+                      className="w-full bg-white border border-zinc-200 rounded px-2 py-1.5 text-xs text-black focus:outline-none focus:border-black placeholder-zinc-300 font-semibold"
                     />
                   )}
                 </div>
+
+                {/* Vincular a Requerimiento(s) */}
+                <div className="col-span-2">
+                  <label className="block text-[10px] font-mono text-zinc-400 uppercase mb-1">Vincular a Requerimiento(s)</label>
+                  <div className="border border-zinc-200 rounded p-2.5 max-h-24 overflow-y-auto space-y-1 bg-zinc-50/50">
+                    {requirements.map((req: any) => (
+                      <label key={req._id} className="flex items-center gap-2 text-[11px] text-zinc-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={taskLinkedReqs.includes(req._id)}
+                          onChange={e => {
+                            if (e.target.checked) {
+                              setTaskLinkedReqs([...taskLinkedReqs, req._id]);
+                            } else {
+                              setTaskLinkedReqs(taskLinkedReqs.filter(id => id !== req._id));
+                            }
+                          }}
+                          className="rounded text-black focus:ring-black h-3.5 w-3.5"
+                        />
+                        <span>[{req.code}] {req.title}</span>
+                      </label>
+                    ))}
+                    {requirements.length === 0 && (
+                      <span className="text-[10px] text-zinc-450 italic">No hay requerimientos en este proyecto.</span>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              <div className="flex gap-2 justify-end pt-2">
+              <div className="flex gap-2 justify-end pt-2 border-t border-zinc-150">
                 <button
                   type="button"
                   onClick={() => setShowTaskModal(false)}
-                  className="px-3 py-1.5 text-xs text-zinc-500 hover:text-black transition-colors"
+                  className="px-3 py-1.5 text-xs text-zinc-500 hover:text-black font-semibold transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="bg-black text-white hover:bg-zinc-800 text-xs font-bold px-3 py-1.5 rounded transition-colors"
+                  className="bg-black text-white hover:bg-zinc-800 text-xs font-bold px-4 py-1.5 rounded transition-colors"
                 >
                   Crear Tarea
                 </button>

@@ -17,6 +17,7 @@ export interface Project {
 export interface TeamMember {
   _id: string;
   user: {
+    email: string;
     _id: string;
     name: string;
     rut: string;
@@ -62,9 +63,9 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         const headers = useAuthStore.getState().getAuthHeaders();
         const response = await fetch(`${API_URL}/projects`, { headers });
         const data = await response.json();
-        
+
         if (!response.ok) throw new Error(data.message || 'Error fetching projects');
-        
+
         set({ projects: data, isLoading: false });
 
         // Set active project if there is one and none is selected
@@ -122,7 +123,7 @@ export const useProjectStore = create<ProjectState>((set, get) => {
         });
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || 'Error loading test project');
-        
+
         set(state => ({
           projects: [...state.projects, data.project],
           activeProject: data.project,

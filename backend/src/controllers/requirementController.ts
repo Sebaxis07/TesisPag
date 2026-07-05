@@ -1,13 +1,32 @@
 import { Response } from 'express';
-import { Requirement } from '../models';
+import { Requirement, Project } from '../models';
 import { ProjectAuthRequest, getProjectRole } from '../middleware/auth';
 import { logAudit } from '../utils/auditLogger';
+import { recalculateRequirementStatus } from '../utils/requirementStatusHelper';
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 
 export const createRequirement = async (req: ProjectAuthRequest, res: Response) => {
   try {
-    const { project, code, title, description, type, priority, status, source } = req.body;
+    const { 
+      project, 
+      code, 
+      title, 
+      description, 
+      type, 
+      priority, 
+      status, 
+      source,
+      methodologyTypeSnapshot,
+      workflowStatus,
+      sprintRef,
+      phaseRef,
+      iterationRef,
+      prototypeVersionRef,
+      sourceType,
+      sourceRef,
+      approvalStatus
+    } = req.body;
 
     if (!project || !code || !title || !type) {
       return res.status(400).json({ message: 'Project, code, title, and type are required' });
@@ -19,6 +38,15 @@ export const createRequirement = async (req: ProjectAuthRequest, res: Response) 
       return res.status(403).json({ message: 'Only Admins or Editors can create requirements' });
     }
 
+    // Resolve project methodology for the snapshot
+    let finalMethodology = methodologyTypeSnapshot;
+    if (!finalMethodology) {
+      const proj = await Project.findById(project);
+      if (proj) {
+        finalMethodology = proj.methodology;
+      }
+    }
+
     const requirement = await Requirement.create({
       project,
       owner: req.user._id,
@@ -28,7 +56,22 @@ export const createRequirement = async (req: ProjectAuthRequest, res: Response) 
       type,
       priority: priority || 'Medium',
       status: status || 'Draft',
-      source: source || 'Manual'
+      source: source || 'Manual',
+      methodologyTypeSnapshot: finalMethodology || 'scrum',
+      workflowStatus: workflowStatus || 'Backlog',
+      sprintRef: sprintRef || '',
+      phaseRef: phaseRef || '',
+      iterationRef: iterationRef || '',
+      prototypeVersionRef: prototypeVersionRef || '',
+      linkedTasks: [],
+      linkedMeetings: [],
+      linkedADRs: [],
+      linkedDeliverables: [],
+      linkedTests: [],
+      version: 1,
+      sourceType: sourceType || 'manual',
+      sourceRef: sourceRef || null,
+      approvalStatus: approvalStatus || 'Draft'
     });
 
     await logAudit(req, project, 'CREATE_REQUIREMENT', 'Requirement', requirement._id.toString(), `Code: ${code}, Title: ${title}`);
@@ -47,7 +90,12 @@ export const getRequirementsByProject = async (req: ProjectAuthRequest, res: Res
       return res.status(403).json({ message: 'Access denied. You are not a member of this project.' });
     }
 
-    const requirements = await Requirement.find({ project: projectId }).sort({ code: 1 });
+    const requirements = await Requirement.find({ project: projectId })
+      .populate('linkedTasks')
+      .populate('linkedMeetings')
+      .populate('linkedADRs')
+      .populate('linkedDeliverables')
+      .sort({ code: 1 });
     return res.json(requirements);
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
@@ -56,7 +104,11 @@ export const getRequirementsByProject = async (req: ProjectAuthRequest, res: Res
 
 export const getRequirementById = async (req: ProjectAuthRequest, res: Response) => {
   try {
-    const requirement = await Requirement.findById(req.params.id);
+    const requirement = await Requirement.findById(req.params.id)
+      .populate('linkedTasks')
+      .populate('linkedMeetings')
+      .populate('linkedADRs')
+      .populate('linkedDeliverables');
     if (!requirement) {
       return res.status(404).json({ message: 'Requirement not found' });
     }
@@ -92,6 +144,9 @@ export const updateRequirement = async (req: ProjectAuthRequest, res: Response) 
     Object.assign(requirement, req.body);
     await requirement.save();
 
+    // Recalculate status (e.g. if linkedTests changed)
+    await recalculateRequirementStatus(requirement._id.toString());
+
     await logAudit(
       req,
       requirement.project.toString(),
@@ -101,7 +156,14 @@ export const updateRequirement = async (req: ProjectAuthRequest, res: Response) 
       `Code: ${requirement.code}, Title: ${requirement.title}`
     );
 
-    return res.json(requirement);
+    // Fetch populated version to return
+    const populated = await Requirement.findById(requirement._id)
+      .populate('linkedTasks')
+      .populate('linkedMeetings')
+      .populate('linkedADRs')
+      .populate('linkedDeliverables');
+
+    return res.json(populated);
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
   }
@@ -204,6 +266,9 @@ export const createRequirementsBulk = async (req: ProjectAuthRequest, res: Respo
       return res.status(403).json({ message: 'Only Admins or Editors can create requirements' });
     }
 
+    const proj = await Project.findById(project);
+    const finalMethodology = proj ? proj.methodology : 'scrum';
+
     const savedRequirements = [];
     for (const reqObj of requirements) {
       let existingReq = await Requirement.findOne({ project, code: reqObj.code });
@@ -213,6 +278,9 @@ export const createRequirementsBulk = async (req: ProjectAuthRequest, res: Respo
         existingReq.type = reqObj.type;
         existingReq.priority = reqObj.priority || 'Medium';
         existingReq.source = reqObj.source || 'Extracción IA';
+        if (!existingReq.methodologyTypeSnapshot) {
+          existingReq.methodologyTypeSnapshot = finalMethodology;
+        }
         await existingReq.save();
         savedRequirements.push(existingReq);
       } else {
@@ -225,7 +293,22 @@ export const createRequirementsBulk = async (req: ProjectAuthRequest, res: Respo
           type: reqObj.type,
           priority: reqObj.priority || 'Medium',
           status: 'Draft',
-          source: reqObj.source || 'Extracción IA'
+          source: reqObj.source || 'Extracción IA',
+          methodologyTypeSnapshot: finalMethodology,
+          workflowStatus: 'Backlog',
+          sprintRef: '',
+          phaseRef: '',
+          iterationRef: '',
+          prototypeVersionRef: '',
+          linkedTasks: [],
+          linkedMeetings: [],
+          linkedADRs: [],
+          linkedDeliverables: [],
+          linkedTests: [],
+          version: 1,
+          sourceType: reqObj.sourceType || 'rag',
+          sourceRef: reqObj.sourceRef || null,
+          approvalStatus: 'Draft'
         });
         savedRequirements.push(newReq);
       }

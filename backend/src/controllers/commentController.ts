@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { Comment, TeamMember, Notification } from '../models';
+import { notifyUser } from '../utils/notificationHelper';
 import { ProjectAuthRequest } from '../middleware/auth';
 import { logAudit } from '../utils/auditLogger';
 
@@ -83,13 +84,14 @@ export const replyComment = async (req: ProjectAuthRequest, res: Response) => {
     await comment.save();
 
     if (comment.user.toString() !== req.user._id.toString()) {
-      await Notification.create({
-        user: comment.user,
-        project: comment.project,
-        message: `${req.user.name} respondió a tu comentario: "${content.substring(0, 30)}..."`,
-        link: '/observaciones',
-        isRead: false
-      });
+      await notifyUser(
+        comment.user,
+        comment.project,
+        'comments',
+        'Respuesta a comentario',
+        `${req.user.name} respondió a tu comentario: "${content.substring(0, 30)}..."`,
+        '/observaciones'
+      );
     }
 
     await logAudit(
@@ -136,13 +138,14 @@ export const resolveComment = async (req: ProjectAuthRequest, res: Response) => 
     await comment.save();
 
     if (comment.user.toString() !== req.user._id.toString()) {
-      await Notification.create({
-        user: comment.user,
-        project: comment.project,
-        message: `${req.user.name} resolvió tu comentario sobre ${comment.resourceType}.`,
-        link: '/observaciones',
-        isRead: false
-      });
+      await notifyUser(
+        comment.user,
+        comment.project,
+        'comments',
+        'Comentario resuelto',
+        `${req.user.name} resolvió tu comentario sobre ${comment.resourceType}.`,
+        '/observaciones'
+      );
     }
 
     await logAudit(
