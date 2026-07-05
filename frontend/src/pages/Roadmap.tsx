@@ -97,9 +97,9 @@ export const Roadmap: React.FC = () => {
       const projectId = activeProject._id;
 
       const [delRes, taskRes, reqRes] = await Promise.all([
-        fetch(`http://localhost:5000/api/deliverables/project/${projectId}`, { headers }),
-        fetch(`http://localhost:5000/api/tasks/project/${projectId}`, { headers }),
-        fetch(`http://localhost:5000/api/requirements/project/${projectId}`, { headers })
+        fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/deliverables/project/${projectId}`, { headers }),
+        fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/tasks/project/${projectId}`, { headers }),
+        fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/requirements/project/${projectId}`, { headers })
       ]);
 
       if (!delRes.ok || !taskRes.ok || !reqRes.ok) {
@@ -271,7 +271,7 @@ export const Roadmap: React.FC = () => {
 
       let res;
       if (modalMode === 'edit' && selectedMilestone) {
-        res = await fetch(`http://localhost:5000/api/deliverables/${selectedMilestone._id}`, {
+        res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/deliverables/${selectedMilestone._id}`, {
           method: 'PUT',
           headers,
           body: JSON.stringify(payload)
@@ -300,7 +300,7 @@ export const Roadmap: React.FC = () => {
   const handleDelete = async (id: string) => {
     if (!window.confirm('¿Estás seguro de eliminar este hito académico? Se perderá el registro del entregable asociado.')) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/deliverables/${id}`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/deliverables/${id}`, {
         method: 'DELETE',
         headers: getAuthHeaders()
       });

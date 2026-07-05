@@ -63,7 +63,7 @@ export const StackComparer: React.FC = () => {
 
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/projects/${activeProject._id}/compare-stacks`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/projects/${activeProject._id}/compare-stacks`, {
         method: 'POST',
         headers: {
           ...headers,

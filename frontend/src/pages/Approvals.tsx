@@ -64,7 +64,7 @@ export const Approvals: React.FC = () => {
     setError(null);
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/approvals/project/${activeProject._id}`, { headers });
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/approvals/project/${activeProject._id}`, { headers });
       if (!res.ok) throw new Error('Error al cargar las aprobaciones.');
       const data = await res.json();
       setApprovals(data);
@@ -85,11 +85,11 @@ export const Approvals: React.FC = () => {
     try {
       const headers = getAuthHeaders();
       let url = '';
-      if (type === 'Requirement') url = `http://localhost:5000/api/requirements/project/${activeProject._id}`;
-      else if (type === 'Meeting') url = `http://localhost:5000/api/meetings/project/${activeProject._id}`;
-      else if (type === 'Deliverable') url = `http://localhost:5000/api/deliverables/project/${activeProject._id}`;
-      else if (type === 'ADRDecision') url = `http://localhost:5000/api/adrs/project/${activeProject._id}`;
-      else if (type === 'Report') url = `http://localhost:5000/api/documents/project/${activeProject._id}`;
+      if (type === 'Requirement') url = `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/requirements/project/${activeProject._id}`;
+      else if (type === 'Meeting') url = `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/meetings/project/${activeProject._id}`;
+      else if (type === 'Deliverable') url = `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/deliverables/project/${activeProject._id}`;
+      else if (type === 'ADRDecision') url = `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/adrs/project/${activeProject._id}`;
+      else if (type === 'Report') url = `${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/documents/project/${activeProject._id}`;
 
       const res = await fetch(url, { headers });
       if (res.ok) {
@@ -128,7 +128,7 @@ export const Approvals: React.FC = () => {
 
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/approvals`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/approvals`, {
         method: 'POST',
         headers: {
           ...headers,
@@ -163,7 +163,7 @@ export const Approvals: React.FC = () => {
 
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/approvals/${selectedApproval._id}/review`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/approvals/${selectedApproval._id}/review`, {
         method: 'POST',
         headers: {
           ...headers,

@@ -31,7 +31,7 @@ export const ProjectDetail: React.FC = () => {
   const fetchInvites = async () => {
     if (!activeProject) return;
     try {
-      const response = await fetch(`http://localhost:5000/api/invites/project/${activeProject._id}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/invites/project/${activeProject._id}`, {
         headers: useAuthStore.getState().getAuthHeaders(),
         credentials: 'include'
       });
@@ -87,7 +87,7 @@ export const ProjectDetail: React.FC = () => {
     const emailToSubmit = inviteEmail.trim() || `observador.general+${Math.floor(100000 + Math.random() * 900000)}@thesisflow.cl`;
 
     try {
-      const response = await fetch(`http://localhost:5000/api/invites/project/${activeProject._id}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/invites/project/${activeProject._id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

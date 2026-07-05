@@ -48,7 +48,7 @@ export const CoordinatorDashboard: React.FC = () => {
     if (projects.length > 0) {
       const fetchAllStats = async () => {
         const statsMap: Record<string, any> = {};
-        const API_URL = 'http://localhost:5000/api';
+        const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
         const headers = getAuthHeaders();
 
         await Promise.all(

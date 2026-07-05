@@ -33,7 +33,7 @@ export const AuditLogs: React.FC = () => {
     setHasAccess(true);
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/audit/project/${activeProject._id}`, { headers });
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/audit/project/${activeProject._id}`, { headers });
       
       if (res.status === 403) {
         setHasAccess(false);

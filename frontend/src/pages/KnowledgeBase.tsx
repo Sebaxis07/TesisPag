@@ -63,7 +63,7 @@ export const KnowledgeBase: React.FC = () => {
     if (!activeProject) return;
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/documents/project/${activeProject._id}`, { headers });
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/documents/project/${activeProject._id}`, { headers });
       if (res.ok) {
         const data = await res.json();
         setDocuments(data);
@@ -167,7 +167,7 @@ export const KnowledgeBase: React.FC = () => {
     if (!window.confirm('¿Estás seguro de eliminar este documento de la base de conocimiento?')) return;
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/documents/${id}`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/documents/${id}`, {
         method: 'DELETE',
         headers
       });

@@ -6,7 +6,7 @@ import './index.css';
 // Dynamic API URL Injection for Deployment
 const originalFetch = window.fetch;
 window.fetch = function (input, init) {
-  if (typeof input === 'string' && input.startsWith('http://localhost:5000/api')) {
+  if (typeof input === 'string' && input.startsWith((import.meta.env.VITE_API_URL || 'http://localhost:5000/api'))) {
     let apiBase = import.meta.env.VITE_API_URL;
     if (apiBase) {
       if (apiBase.endsWith('/')) {
@@ -15,7 +15,7 @@ window.fetch = function (input, init) {
       if (!apiBase.endsWith('/api')) {
         apiBase = `${apiBase}/api`;
       }
-      input = input.replace('http://localhost:5000/api', apiBase);
+      input = input.replace((import.meta.env.VITE_API_URL || 'http://localhost:5000/api'), apiBase);
     }
   }
   return originalFetch(input, init);

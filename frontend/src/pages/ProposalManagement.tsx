@@ -94,7 +94,7 @@ export const ProposalManagement: React.FC = () => {
     setLoading(true);
     try {
       const headers = getAuthHeaders();
-      const API_URL = 'http://localhost:5000/api';
+      const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
 
       // 1. Fetch proposals
       let proposalUrl = `${API_URL}/proposals/student`;
@@ -125,7 +125,7 @@ export const ProposalManagement: React.FC = () => {
     e.preventDefault();
     try {
       const headers = getAuthHeaders();
-      const API_URL = 'http://localhost:5000/api';
+      const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
       
       const payload = {
         title,
@@ -203,7 +203,7 @@ export const ProposalManagement: React.FC = () => {
     if (!window.confirm('¿Estás seguro de enviar esta propuesta para revisión? No podrás editarla mientras se evalúa.')) return;
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/proposals/${id}/submit`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/proposals/${id}/submit`, {
         method: 'POST',
         headers
       });
@@ -244,7 +244,7 @@ export const ProposalManagement: React.FC = () => {
       });
 
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/proposals/${selectedProposal._id}/review`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/proposals/${selectedProposal._id}/review`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({

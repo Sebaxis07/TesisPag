@@ -60,7 +60,7 @@ export const Observations: React.FC = () => {
     setError(null);
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/comments/project/${activeProject._id}`, { headers });
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/comments/project/${activeProject._id}`, { headers });
       if (!res.ok) {
         throw new Error('Error al obtener las observaciones');
       }
@@ -89,7 +89,7 @@ export const Observations: React.FC = () => {
 
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/comments/${selectedComment._id}/reply`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/comments/${selectedComment._id}/reply`, {
         method: 'POST',
         headers: {
           ...headers,
@@ -116,7 +116,7 @@ export const Observations: React.FC = () => {
   const handleResolve = async (commentId: string) => {
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/comments/${commentId}/resolve`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/comments/${commentId}/resolve`, {
         method: 'PATCH',
         headers
       });

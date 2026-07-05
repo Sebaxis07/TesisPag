@@ -73,7 +73,7 @@ export const Deliverables: React.FC = () => {
     setError(null);
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/deliverables/project/${activeProject._id}`, { headers });
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/deliverables/project/${activeProject._id}`, { headers });
       if (!res.ok) throw new Error('Error al cargar entregables');
       const data = await res.json();
       setDeliverables(data);
@@ -139,7 +139,7 @@ export const Deliverables: React.FC = () => {
       formData.append('file', selectedFile);
       formData.append('comment', uploadComment);
 
-      const res = await fetch(`http://localhost:5000/api/deliverables/${selectedDeliverable._id}/version`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/deliverables/${selectedDeliverable._id}/version`, {
         method: 'POST',
         headers: {
           'Authorization': (headers as any)['Authorization'] || '' // Do not set Content-Type, let browser boundary handle it
@@ -167,7 +167,7 @@ export const Deliverables: React.FC = () => {
     if (!window.confirm('¿Estás seguro de congelar este entregable? Ya no se podrán subir más versiones.')) return;
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/deliverables/${deliverableId}/freeze`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/deliverables/${deliverableId}/freeze`, {
         method: 'PATCH',
         headers
       });
@@ -186,7 +186,7 @@ export const Deliverables: React.FC = () => {
   const handleDownload = async (deliverableId: string, versionNumber: number, filename: string) => {
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/deliverables/${deliverableId}/download/${versionNumber}`, { headers });
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/deliverables/${deliverableId}/download/${versionNumber}`, { headers });
       if (!res.ok) throw new Error('Error al descargar archivo');
 
       const blob = await res.blob();
@@ -246,7 +246,7 @@ export const Deliverables: React.FC = () => {
 
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/deliverables/${selectedDeliverable._id}/version/${reviewVerNum}/approve`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/deliverables/${selectedDeliverable._id}/version/${reviewVerNum}/approve`, {
         method: 'POST',
         headers: {
           ...headers,

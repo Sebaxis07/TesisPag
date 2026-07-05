@@ -122,7 +122,7 @@ export const EvaluationRubricPanel: React.FC = () => {
   const isAcademic = user?.role === 'Docente' || user?.role === 'Evaluador' || user?.role === 'Coordinador';
   const isCoordinator = user?.role === 'Coordinador' || user?.role === 'Admin';
 
-  const API_URL = 'http://localhost:5000/api';
+  const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
 
   const fetchData = useCallback(async () => {
     setLoading(true);

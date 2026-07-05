@@ -29,7 +29,7 @@ export const AcceptInvite: React.FC = () => {
   const [guestName, setGuestName] = useState('');
   const [isJoiningGuest, setIsJoiningGuest] = useState(false);
 
-  const API_URL = 'http://localhost:5000/api';
+  const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
 
   const handleAcceptGuest = async (e: React.FormEvent) => {
     e.preventDefault();

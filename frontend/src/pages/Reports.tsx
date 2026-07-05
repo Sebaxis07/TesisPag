@@ -115,7 +115,7 @@ export const Reports: React.FC = () => {
   const [aiRubricEvaluation, setAiRubricEvaluation] = useState<any | null>(null);
   const [loadingRubric, setLoadingRubric] = useState(false);
 
-  const API_URL = 'http://localhost:5000/api';
+  const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
   const headers = useAuthStore.getState().getAuthHeaders();
 
   const fetchSections = async () => {

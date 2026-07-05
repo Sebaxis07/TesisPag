@@ -153,7 +153,7 @@ export const Layout: React.FC = () => {
     e.stopPropagation();
     try {
       const headers = getAuthHeaders();
-      const res = await fetch(`http://localhost:5000/api/notifications/${id}/read`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/notifications/${id}/read`, {
         method: 'PUT',
         headers
       });
@@ -184,7 +184,7 @@ export const Layout: React.FC = () => {
     if (!n.isRead) {
       try {
         const headers = getAuthHeaders();
-        await fetch(`http://localhost:5000/api/notifications/${n._id}/read`, {
+        await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/notifications/${n._id}/read`, {
           method: 'PUT',
           headers
         });

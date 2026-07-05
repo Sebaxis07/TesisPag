@@ -41,7 +41,7 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     if (activeProject) {
       // Fetch stats for active project
-      const API_URL = 'http://localhost:5000/api';
+      const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
       const headers = useAuthStore.getState().getAuthHeaders();
       
       const fetchStats = async () => {

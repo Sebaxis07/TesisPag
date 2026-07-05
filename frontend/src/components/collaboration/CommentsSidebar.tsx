@@ -39,7 +39,7 @@ export const CommentsSidebar: React.FC<CommentsSidebarProps> = ({ isOpen, onClos
   const [replyTexts, setReplyTexts] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const API_URL = 'http://localhost:5000/api';
+  const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
 
   const getModuleMapping = (pathname: string): { type: string; id: string } => {
     // Determine the contextual resource depending on current route

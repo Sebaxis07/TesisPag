@@ -7,7 +7,7 @@ import {
   Shield, Eye, Pencil, Clock, UserMinus, UserPlus
 } from 'lucide-react';
 
-const API = 'http://localhost:5000/api';
+const API = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
 
 type ProjectRole = 'Admin' | 'Editor' | 'Viewer';
 
@@ -52,7 +52,7 @@ export const TeamMembers: React.FC = () => {
   const fetchInvites = async () => {
     if (!activeProject) return;
     try {
-      const response = await fetch(`http://localhost:5000/api/invites/project/${activeProject._id}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/invites/project/${activeProject._id}`, {
         headers: useAuthStore.getState().getAuthHeaders(),
         credentials: 'include'
       });
@@ -72,7 +72,7 @@ export const TeamMembers: React.FC = () => {
     const emailToSubmit = inviteEmail.trim() || `observador.general+${Math.floor(100000 + Math.random() * 900000)}@thesisflow.cl`;
 
     try {
-      const response = await fetch(`http://localhost:5000/api/invites/project/${activeProject._id}`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || (import.meta.env.VITE_API_URL || 'http://localhost:5000/api')}/invites/project/${activeProject._id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

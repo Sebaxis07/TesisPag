@@ -27,7 +27,7 @@ export const PresenceWidget: React.FC<{ onOpenComments: () => void }> = ({ onOpe
   const [sessions, setSessions] = useState<PresenceSession[]>([]);
   const [unresolvedCount, setUnresolvedCount] = useState(0);
 
-  const API_URL = 'http://localhost:5000/api';
+  const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:5000/api');
 
   const getCurrentViewName = (pathname: string) => {
     if (pathname.includes('/arquitectura')) return 'Arquitectura (ADRs)';
