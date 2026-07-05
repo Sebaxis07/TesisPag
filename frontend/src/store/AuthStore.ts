@@ -38,6 +38,7 @@ interface AuthState {
   fetchProfile: () => Promise<void>;
   initializeSession: () => Promise<boolean>;
   getAuthHeaders: () => { Authorization: string } | {};
+  initializeSSO: (token: string, user: UserProfile) => void;
 }
 
 const API_URL = 'http://localhost:5000/api';
@@ -209,6 +210,17 @@ export const useAuthStore = create<AuthState>((set, get) => {
     getAuthHeaders: () => {
       const { token } = get();
       return token ? { Authorization: `Bearer ${token}` } : {};
+    },
+
+    initializeSSO: (token: string, user: UserProfile) => {
+      localStorage.setItem('tf_user', JSON.stringify(user));
+      set({
+        token,
+        user,
+        isAuthenticated: true,
+        isLoading: false,
+        error: null
+      });
     }
   };
 });

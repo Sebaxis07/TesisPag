@@ -24,6 +24,7 @@ import { UserManagement } from './pages/UserManagement';
 import { ProposalManagement } from './pages/ProposalManagement';
 import { EvaluationRubricPanel } from './pages/EvaluationRubricPanel';
 import { Profile } from './pages/Profile';
+import { SSOCallback } from './pages/SSOCallback';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated } = useAuthStore();
@@ -60,6 +61,7 @@ export const App: React.FC = () => {
       <Routes>
         {/* Auth Route */}
         <Route path="/login" element={<Login />} />
+        <Route path="/sso-callback" element={<SSOCallback />} />
         <Route path="/invites/accept/:token" element={<AcceptInvite />} />
 
         {/* Protected Dashboard Workspace Routes */}

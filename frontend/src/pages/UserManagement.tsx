@@ -15,7 +15,7 @@ export const UserManagement: React.FC = () => {
   const [newName, setNewName] = useState('');
   const [newRut, setNewRut] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [newRole, setNewRole] = useState<'Admin' | 'Editor' | 'Viewer' | 'Creador'>('Editor');
+  const [newRole, setNewRole] = useState<'Admin' | 'Editor' | 'Viewer' | 'Creador' | 'Docente' | 'Coordinador' | 'Evaluador'>('Editor');
   const [newIsActivated, setNewIsActivated] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
   const [modalLoading, setModalLoading] = useState(false);
@@ -269,8 +269,11 @@ export const UserManagement: React.FC = () => {
                             disabled={isSelf}
                             className="bg-zinc-50 border border-zinc-200 rounded px-2 py-1 text-xs font-medium text-black focus:outline-none focus:border-black disabled:opacity-50"
                           >
-                            <option value="Admin">Admin</option>
                             <option value="Editor">Editor</option>
+                            <option value="Docente">Docente</option>
+                            <option value="Coordinador">Coordinador</option>
+                            <option value="Evaluador">Evaluador</option>
+                            <option value="Admin">Admin</option>
                             <option value="Viewer">Viewer</option>
                           </select>
                         )}
@@ -378,8 +381,11 @@ export const UserManagement: React.FC = () => {
                   onChange={e => setNewRole(e.target.value as any)}
                   className="w-full bg-white border border-zinc-200 rounded px-3 py-2 text-sm text-black focus:outline-none focus:border-black"
                 >
+                  <option value="Editor">Editor (Líder / Integrante de Proyecto)</option>
+                  <option value="Docente">Docente (Guía / Supervisor)</option>
+                  <option value="Coordinador">Coordinador (Coordinador de Tesis)</option>
+                  <option value="Evaluador">Evaluador (Comisión Evaluadora)</option>
                   <option value="Admin">Admin (Administrador)</option>
-                  <option value="Editor">Editor (Editor de Proyectos)</option>
                   <option value="Viewer">Viewer (Solo Lectura)</option>
                 </select>
               </div>

@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { User, TeamMember } from '../models';
@@ -406,5 +406,113 @@ export const changePassword = async (req: AuthRequest, res: Response) => {
     return res.json({ message: 'Contraseña cambiada exitosamente' });
   } catch (error: any) {
     return res.status(500).json({ message: error.message });
+  }
+};
+
+export const microsoftAuth = (req: Request, res: Response) => {
+  const clientId = process.env.MICROSOFT_CLIENT_ID || '';
+  const tenantId = process.env.MICROSOFT_TENANT_ID || 'common';
+  const redirectUri = encodeURIComponent(process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:5000/api/auth/microsoft/callback');
+  
+  const authUrl = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&response_mode=query&scope=openid%20profile%20email%20User.Read`;
+  
+  return res.redirect(authUrl);
+};
+
+export const microsoftCallback = async (req: Request, res: Response) => {
+  try {
+    const { code } = req.query;
+    if (!code) {
+      return res.status(400).json({ message: 'Authorization code is missing' });
+    }
+
+    const clientId = process.env.MICROSOFT_CLIENT_ID || '';
+    const clientSecret = process.env.MICROSOFT_CLIENT_SECRET || '';
+    const tenantId = process.env.MICROSOFT_TENANT_ID || 'common';
+    const redirectUri = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:5000/api/auth/microsoft/callback';
+
+    // Exchange code for access token
+    const tokenResponse = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        code: code as string,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code'
+      })
+    });
+
+    const tokenData = await tokenResponse.json() as any;
+    if (!tokenResponse.ok) {
+      throw new Error(tokenData.error_description || 'Failed to exchange Microsoft OAuth token');
+    }
+
+    // Fetch user profile from Microsoft Graph
+    const graphResponse = await fetch('https://graph.microsoft.com/v1.0/me', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` }
+    });
+
+    const graphData = await graphResponse.json() as any;
+    if (!graphResponse.ok) {
+      throw new Error('Failed to fetch Microsoft profile');
+    }
+
+    const email = graphData.mail || graphData.userPrincipalName || '';
+    const name = graphData.displayName || graphData.givenName || 'Microsoft User';
+    
+    if (!email) {
+      return res.status(400).json({ message: 'No email found in Microsoft account' });
+    }
+
+    // Determine role based on email domain
+    let role: 'Docente' | 'Creador' | 'Editor' | 'Viewer' = 'Viewer';
+    if (email.toLowerCase().endsWith('@inacap.cl')) {
+      role = 'Docente';
+    } else if (email.toLowerCase().endsWith('@inacapmail.cl')) {
+      role = 'Creador';
+    }
+
+    // Try to find user by email
+    let user = await User.findOne({ email: email.toLowerCase() });
+    
+    if (!user) {
+      const randomPassword = Math.random().toString(36).slice(-8);
+      const salt = await bcrypt.genSalt(10);
+      const passwordHash = await bcrypt.hash(randomPassword, salt);
+      
+      const mockRutNumber = Math.floor(10000000 + Math.random() * 90000000).toString();
+      const mockRut = `${mockRutNumber}-0`;
+
+      user = await User.create({
+        name,
+        email: email.toLowerCase(),
+        rut: mockRut,
+        passwordHash,
+        role: role,
+        isActivated: true
+      });
+    }
+
+    const accessToken = generateAccessToken(user._id.toString());
+    const refreshToken = generateRefreshToken(user._id.toString());
+
+    setRefreshCookie(res, refreshToken);
+
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const redirectUrl = `${frontendUrl}/sso-callback?token=${accessToken}&user=${encodeURIComponent(JSON.stringify({
+      _id: user._id,
+      name: user.name,
+      rut: user.rut,
+      role: user.role,
+      email: user.email
+    }))}`;
+
+    return res.redirect(redirectUrl);
+  } catch (error: any) {
+    console.error('SSO Callback error:', error.message);
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    return res.redirect(`${frontendUrl}/login?error=${encodeURIComponent(error.message)}`);
   }
 };

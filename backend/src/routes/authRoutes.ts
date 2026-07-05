@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { 
   register, login, activate, getMe, getUsers, updateUserRole, 
-  refresh, logout, createUser, deleteUser, updateProfile, changePassword 
+  refresh, logout, createUser, deleteUser, updateProfile, changePassword,
+  microsoftAuth, microsoftCallback
 } from '../controllers/authController';
 import { protect, authorize, authorizeCreator } from '../middleware/auth';
 
@@ -9,6 +10,8 @@ const router = Router();
 
 router.post('/register', register);
 router.post('/login', login);
+router.get('/microsoft', microsoftAuth);
+router.get('/microsoft/callback', microsoftCallback);
 router.post('/activate', activate);
 router.post('/refresh', refresh);
 router.post('/logout', logout);

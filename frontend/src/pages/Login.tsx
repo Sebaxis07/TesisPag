@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/AuthStore';
 import { validateRut, normalizeRut } from '../utils/rutHelper';
+import { Shield } from 'lucide-react';
 
 export const Login: React.FC = () => {
   type ViewState = 'login' | 'register' | 'activate';
@@ -11,6 +12,8 @@ export const Login: React.FC = () => {
   const [password, setPassword] = useState('');
   const [passwordConfirm, setPasswordConfirm] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
+  
+  const [searchParams] = useSearchParams();
   const { login, register, activate, isAuthenticated, error, isLoading } = useAuthStore();
   const navigate = useNavigate();
 
@@ -19,6 +22,14 @@ export const Login: React.FC = () => {
       navigate('/');
     }
   }, [isAuthenticated, navigate]);
+
+  useEffect(() => {
+    // If there is an error in URL from real Microsoft callback redirect
+    const urlError = searchParams.get('error');
+    if (urlError) {
+      setValidationError(decodeURIComponent(urlError));
+    }
+  }, [searchParams]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,9 +61,17 @@ export const Login: React.FC = () => {
     }
   };
 
+  const handleSSORedirect = () => {
+    // Real Microsoft OAuth 2.0 / Entra ID SSO redirect through backend
+    window.location.href = 'http://localhost:5000/api/auth/microsoft';
+  };
+
   return (
-    <div className="min-h-screen bg-zinc-50 flex flex-col items-center justify-center p-6">
-      <div className="w-full max-w-md bg-white border border-zinc-200 rounded-lg p-8 shadow-sm">
+    <div className="min-h-screen bg-zinc-50 flex flex-col items-center justify-center p-6 relative overflow-hidden">
+      {/* Visual top border */}
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-650 via-zinc-900 to-red-800" />
+      
+      <div className="w-full max-w-md bg-white border border-zinc-200 rounded-lg p-8 shadow-sm relative z-10">
         {/* Branding header */}
         <div className="text-center mb-8">
           <img src="/icon/icon.png" className="w-12 h-12 object-contain mx-auto mb-3" alt="ThesisFlow Logo" />
@@ -139,6 +158,25 @@ export const Login: React.FC = () => {
           </button>
         </form>
 
+        {view === 'login' && (
+          <div className="mt-4 space-y-3">
+            <div className="relative flex py-2 items-center">
+              <div className="flex-grow border-t border-zinc-200"></div>
+              <span className="flex-shrink mx-4 text-zinc-400 text-[10px] font-mono uppercase">O ingresar con</span>
+              <div className="flex-grow border-t border-zinc-200"></div>
+            </div>
+            
+            <button
+              type="button"
+              onClick={handleSSORedirect}
+              className="w-full bg-red-700 hover:bg-red-800 text-white text-xs font-bold py-2.5 rounded transition-all flex items-center justify-center gap-2 shadow-sm"
+            >
+              <Shield className="w-4 h-4 text-white" />
+              <span className="font-sans tracking-wide">Acceso Institucional INACAP (SSO)</span>
+            </button>
+          </div>
+        )}
+
         <div className="mt-8 pt-6 border-t border-zinc-100 flex flex-col gap-3 items-center">
           {view === 'login' && (
             <>
@@ -200,3 +238,5 @@ export const Login: React.FC = () => {
     </div>
   );
 };
+
+export default Login;
