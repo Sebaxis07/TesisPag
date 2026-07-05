@@ -117,10 +117,12 @@ export const AdvisorDashboard: React.FC = () => {
       setEmailSuccess(null);
       setEmailError(null);
 
-      const headers = getAuthHeaders();
-      headers['Content-Type'] = 'application/json';
+      const headers = {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders()
+      };
 
-      const response = await fetch('http://localhost:5000/api/notifications/send-custom-email', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/notifications/send-custom-email`, {
         method: 'POST',
         headers,
         body: JSON.stringify({

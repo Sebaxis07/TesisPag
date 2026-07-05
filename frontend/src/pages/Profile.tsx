@@ -910,7 +910,7 @@ export const Profile: React.FC = () => {
                 <label className="text-[10px] font-mono text-zinc-400 uppercase block font-bold">Tema Visual</label>
                 <select 
                   value={theme} 
-                  onChange={e => setTheme(e.target.value)}
+                  onChange={e => setTheme(e.target.value as 'light' | 'dark')}
                   className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs bg-white focus:outline-none focus:border-zinc-500"
                 >
                   <option value="light">☀️ Claro (Corporativo)</option>
@@ -922,7 +922,7 @@ export const Profile: React.FC = () => {
                 <label className="text-[10px] font-mono text-zinc-400 uppercase block font-bold">Idioma / Language</label>
                 <select 
                   value={language} 
-                  onChange={e => setLanguage(e.target.value)}
+                  onChange={e => setLanguage(e.target.value as 'es' | 'en')}
                   className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs bg-white focus:outline-none focus:border-zinc-500"
                 >
                   <option value="es">Español (Chile)</option>
@@ -934,7 +934,7 @@ export const Profile: React.FC = () => {
                 <label className="text-[10px] font-mono text-zinc-400 uppercase block font-bold">Densidad de la Interfaz</label>
                 <select 
                   value={density} 
-                  onChange={e => setDensity(e.target.value)}
+                  onChange={e => setDensity(e.target.value as 'compact' | 'normal')}
                   className="w-full border border-zinc-200 rounded-lg px-3 py-2 text-xs bg-white focus:outline-none focus:border-zinc-500"
                 >
                   <option value="normal">Normal</option>
